@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "WebSearch",
+      "Bash(find /home/diegocar448/projects/laravel_ai -name *.php -o -name *.yaml -o -name *.env*)",
+      "Bash(ls /home/diegocar448/projects/laravel_ai/*.md)",
+      "Bash(./vendor/bin/sail artisan:*)",
+      "Bash(./vendor/bin/sail ps:*)",
+      "Bash(./vendor/bin/sail logs:*)",
+      "Bash(./vendor/bin/sail exec:*)"
+    ],
+    "additionalDirectories": [
+      "/home/diegocar448/projects/laravel_ai"
+    ]
+  }
+}
