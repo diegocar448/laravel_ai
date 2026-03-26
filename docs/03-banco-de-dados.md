@@ -6,6 +6,11 @@ Neste capitulo vamos criar **todas as migrations** do projeto. Ao final, voce te
 
 ## Antes de comecar
 
+> **Lembrete:** Se `sail` retornar "command not found", crie o alias (feito no Capitulo 2):
+> ```bash
+> alias sail='./vendor/bin/sail'
+> ```
+
 Crie a branch para este capitulo:
 
 ```bash

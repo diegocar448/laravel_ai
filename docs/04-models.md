@@ -6,6 +6,11 @@ Neste capitulo vamos criar **todos os Eloquent Models**, **Enums PHP** e configu
 
 ## Antes de comecar
 
+> **Lembrete:** Se `sail` retornar "command not found", crie o alias (feito no Capitulo 2):
+> ```bash
+> alias sail='./vendor/bin/sail'
+> ```
+
 Crie a branch para este capitulo:
 
 ```bash
