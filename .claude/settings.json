@@ -8,7 +8,8 @@
       "Bash(./vendor/bin/sail artisan:*)",
       "Bash(./vendor/bin/sail ps:*)",
       "Bash(./vendor/bin/sail logs:*)",
-      "Bash(./vendor/bin/sail exec:*)"
+      "Bash(./vendor/bin/sail exec:*)",
+      "Read(//home/diegocar448/.ssh/**)"
     ],
     "additionalDirectories": [
       "/home/diegocar448/projects/laravel_ai"
