@@ -2,152 +2,391 @@
 
 > **Este capitulo cobre o pilar de AI Engineering: Structured Output (pilar 2)**
 
-## Design dos Models para AI Engineering
+Neste capitulo vamos criar **todos os Eloquent Models**, **Enums PHP** e configurar os **relacionamentos**. Os Models sao a ponte entre o banco de dados (Capitulo 3) e os Agents de IA (Capitulo 8).
 
-Os Models foram desenhados para suportar **Structured Output** — forcar a IA a responder em formatos tipados e validaveis via `HasStructuredOutput` do Laravel AI SDK.
+## Antes de comecar
 
-### Padrao de Design: Agent Schema + Eloquent
+> **Lembrete:** Se `sail` retornar "command not found", crie o alias (feito no Capitulo 2):
+> ```bash
+> alias sail='./vendor/bin/sail'
+> ```
 
-No Laravel AI SDK, o Agent define o schema da resposta, e o Eloquent persiste:
+Crie a branch para este capitulo:
 
-```php
-// Agent define o schema (Capitulo 8)
-class CodeAnalyst implements Agent, HasStructuredOutput
-{
-    use Promptable;
+```bash
+cd ~/laravel_ai
+git checkout main && git pull
+git checkout -b feat/cap04-models
+cd codereview-ai
+```
 
-    public function schema(JsonSchema $schema): array
-    {
-        return [
-            'summary' => $schema->string()->required(),
-            'score' => $schema->integer()->min(0)->max(100)->required(),
-            'findings' => $schema->array()->required(),
-        ];
-    }
-}
+---
 
-// Eloquent persiste a resposta tipada
-$response = (new CodeAnalyst)->prompt($code);
+## Como Models se conectam com AI Engineering
 
-$codeReview->update([
-    'summary' => $response['summary'],   // string garantida
-    'review_status_id' => 2,             // Completed
-]);
+No Laravel AI SDK, o **Agent define o schema** da resposta e o **Eloquent persiste** o resultado:
+
+```
+Agent (Capitulo 8)                    Eloquent (este capitulo)
++---------------------------+         +-------------------------+
+| CodeAnalyst Agent         |         | CodeReview Model        |
+|                           |         |                         |
+| schema():                 |  save   | $fillable = [           |
+|   summary -> string       |-------->|   'summary',            |
+|   score -> integer        |         |   'review_status_id',   |
+|   findings -> array       |         | ]                       |
++---------------------------+         +-------------------------+
+                                              |
+                                      +-------v-----------------+
+                                      | ReviewFinding Model     |
+                                      |                         |
+                                      | $fillable = [           |
+                                      |   'description',        |
+                                      |   'severity',           |
+                                      | ]                       |
+                                      +-------------------------+
 ```
 
 **Por que esse padrao?**
-
-1. **Tipagem forte** — JsonSchema valida antes de persistir
-2. **Schema no Agent** — Definido junto com a logica de IA
-3. **Eloquent para persistencia** — Models salvam resultado final
-4. **Rejeicao automatica** — Se LLM retornar formato errado, excecao antes de salvar
+1. O Agent garante **tipagem forte** via `HasStructuredOutput` + `JsonSchema`
+2. Se a IA retornar formato errado, excecao **antes** de salvar
+3. Eloquent apenas persiste dados ja validados
 
 ---
 
-## Visao geral dos Models
+## Passo 1 — Criar os Enums PHP
 
-O projeto possui Eloquent Models organizados em 3 grupos:
+O projeto usa **Backed Enums** do PHP 8.5 para mapear os valores das lookup tables (Capitulo 3). Os IDs dos enums correspondem aos IDs inseridos pelo `LookupSeeder`.
 
-```
-Dominio principal:          Lookup tables (Enums):       RAG:
-+-- User                    +-- ProjectStatus            +-- DocEmbedding
-+-- Project                 +-- ImprovementType
-+-- CodeReview              +-- ImprovementStep
-+-- ReviewFinding           +-- ReviewStatus
-+-- Improvement             +-- FindingType
-                            +-- ReviewPillar
+### 1.1 — Criar o diretorio de Enums
+
+```bash
+mkdir -p app/Enums
 ```
 
----
+### 1.2 — ReviewPillarEnum
 
-## Modelos-Chave para AI Engineering
-
-### CodeReview — Pilar 7 (Orchestration)
-
-Este model armazena o **resultado final da orquestracao de Agents**:
+Crie `app/Enums/ReviewPillarEnum.php`:
 
 ```php
-class CodeReview extends Model
-{
-    // Relacionamentos
-    public function project(): BelongsTo          // qual projeto foi analisado
-    public function status(): BelongsTo           // Pending, Completed, Failed
-    public function findings(): HasMany           // findings de todos os 3 agents
-    public function improvements(): HasMany       // melhorias combinadas
+<?php
 
-    // Tracking de IA
-    public $timestamps = true;                    // created_at, updated_at
-    public string $summary;                       // Resumo gerado pelo CodeAnalyst Agent
+namespace App\Enums;
+
+enum ReviewPillarEnum: int
+{
+    case Architecture = 1;
+    case Performance = 2;
+    case Security = 3;
 }
 ```
 
-**Fluxo:**
-```
-User submete codigo
-        |
-CodeReview criado (status=Pending)
-        |
-Job AnalyzeCodeJob disparado
-        |
-CodeAnalyst Agent gera summary + score (HasStructuredOutput)
-        |
-CodeMentor Agent orquestra 3 sub-Agents via Tools
-    +- ArchitectureAnalyst Agent -> retorna findings
-    +- PerformanceAnalyst Agent  -> retorna findings
-    +- SecurityAnalyst Agent     -> retorna findings
-        |
-ReviewFindings salvos no DB
-Improvements gerados via StoreImprovements Tool
-        |
-CodeReview.status = Completed
-```
+### 1.3 — FindingTypeEnum
 
-### ReviewFinding — Pilar 2 (Structured Output)
-
-Cada finding e uma **resposta estruturada de um Agent**, validada e tipada:
+Crie `app/Enums/FindingTypeEnum.php`:
 
 ```php
-class ReviewFinding extends Model
+<?php
+
+namespace App\Enums;
+
+enum FindingTypeEnum: string
 {
-    // Dados estruturados (garantidos tipados pelo Agent schema)
-    public string $description;                    // "SQL Injection risk in..."
-    public string $severity;                       // low|medium|high|critical
-    public ?datetime $agent_flagged_at;            // quando agent encontrou
-    public ?datetime $user_flagged_at;             // quando user validou/descartou
+    case Strength = 'strength';
+    case Improvement = 'improvement';
 }
 ```
 
-**Exemplo de ReviewFinding estruturado (do Agent):**
-```json
+### 1.4 — ReviewStatusEnum
+
+Crie `app/Enums/ReviewStatusEnum.php`:
+
+```php
+<?php
+
+namespace App\Enums;
+
+enum ReviewStatusEnum: int
 {
-  "pillar": "security",
-  "severity": "critical",
-  "description": "SQL Injection vulnerability: User input not parameterized",
-  "code_snippet": "DB::select('SELECT * FROM users WHERE id = ' . $id)",
-  "fix_suggestion": "Use parameterized query: DB::select('SELECT * FROM users WHERE id = ?', [$id])",
-  "line_number": 45
+    case Pending = 1;
+    case Completed = 2;
+    case Failed = 3;
 }
+```
+
+### 1.5 — ProjectStatusEnum
+
+Crie `app/Enums/ProjectStatusEnum.php`:
+
+```php
+<?php
+
+namespace App\Enums;
+
+enum ProjectStatusEnum: int
+{
+    case Active = 1;
+    case Completed = 2;
+    case Archived = 3;
+}
+```
+
+### 1.6 — ImprovementTypeEnum
+
+Crie `app/Enums/ImprovementTypeEnum.php`:
+
+```php
+<?php
+
+namespace App\Enums;
+
+enum ImprovementTypeEnum: int
+{
+    case Refactor = 1;
+    case Fix = 2;
+    case Optimization = 3;
+}
+```
+
+### 1.7 — ImprovementStepEnum
+
+Crie `app/Enums/ImprovementStepEnum.php`:
+
+```php
+<?php
+
+namespace App\Enums;
+
+enum ImprovementStepEnum: int
+{
+    case ToDo = 1;
+    case InProgress = 2;
+    case Done = 3;
+}
+```
+
+### 1.8 — SeverityEnum
+
+Crie `app/Enums/SeverityEnum.php`:
+
+```php
+<?php
+
+namespace App\Enums;
+
+enum SeverityEnum: string
+{
+    case Low = 'low';
+    case Medium = 'medium';
+    case High = 'high';
+    case Critical = 'critical';
+}
+```
+
+```bash
+# Commitar enums
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add PHP backed enums for lookup tables"
 ```
 
 ---
 
-## Resumo da Modelagem para AI
+## Passo 2 — Criar os Models de Lookup
 
-| Modelo | Pilar IA | Funcao |
-|--------|----------|--------|
-| **CodeReview** | Orchestration (7) | Rastreia analise completa |
-| **ReviewFinding** | Structured Output (2) | Armazena resposta tipada do Agent |
-| **Improvement** | Orchestration (7) | Agrupa findings em acao (Tool) |
-| **DocEmbedding** | RAG + Vector DB (3, 6) | Base de conhecimento de PSRs/OWASP |
-| **Project** | — | Projeto sendo analisado |
+As lookup tables sao simples — apenas `id` e `name`. Vamos gerar e editar cada uma.
+
+### 2.1 — ProjectStatus
+
+```bash
+sail artisan make:model ProjectStatus
+```
+
+Edite `app/Models/ProjectStatus.php`:
+
+```php
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+
+class ProjectStatus extends Model
+{
+    protected $fillable = ['name'];
+
+    public function projects(): HasMany
+    {
+        return $this->hasMany(Project::class);
+    }
+}
+```
+
+### 2.2 — ReviewStatus
+
+```bash
+sail artisan make:model ReviewStatus
+```
+
+Edite `app/Models/ReviewStatus.php`:
+
+```php
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+
+class ReviewStatus extends Model
+{
+    protected $fillable = ['name'];
+
+    public function codeReviews(): HasMany
+    {
+        return $this->hasMany(CodeReview::class);
+    }
+}
+```
+
+### 2.3 — FindingType
+
+```bash
+sail artisan make:model FindingType
+```
+
+Edite `app/Models/FindingType.php`:
+
+```php
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+
+class FindingType extends Model
+{
+    protected $fillable = ['name'];
+
+    public function findings(): HasMany
+    {
+        return $this->hasMany(ReviewFinding::class);
+    }
+}
+```
+
+### 2.4 — ReviewPillar
+
+```bash
+sail artisan make:model ReviewPillar
+```
+
+Edite `app/Models/ReviewPillar.php`:
+
+```php
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+
+class ReviewPillar extends Model
+{
+    protected $fillable = ['name'];
+
+    public function findings(): HasMany
+    {
+        return $this->hasMany(ReviewFinding::class);
+    }
+}
+```
+
+### 2.5 — ImprovementType
+
+```bash
+sail artisan make:model ImprovementType
+```
+
+Edite `app/Models/ImprovementType.php`:
+
+```php
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+
+class ImprovementType extends Model
+{
+    protected $fillable = ['name'];
+
+    public function improvements(): HasMany
+    {
+        return $this->hasMany(Improvement::class);
+    }
+}
+```
+
+### 2.6 — ImprovementStep
+
+```bash
+sail artisan make:model ImprovementStep
+```
+
+Edite `app/Models/ImprovementStep.php`:
+
+```php
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+
+class ImprovementStep extends Model
+{
+    protected $fillable = ['name'];
+
+    public function improvements(): HasMany
+    {
+        return $this->hasMany(Improvement::class);
+    }
+}
+```
+
+```bash
+# Commitar lookup models
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add lookup models (statuses, types, pillars, steps)"
+```
 
 ---
 
-## User
+## Passo 3 — Editar o Model User
+
+O Laravel ja criou `app/Models/User.php`. Vamos editar para adicionar os novos campos e o relacionamento com Projects.
+
+Edite `app/Models/User.php`:
 
 ```php
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Notifications\Notifiable;
+
 class User extends Authenticatable
 {
+    use HasFactory, Notifiable;
+
     protected $fillable = [
         'name',
         'email',
@@ -157,7 +396,10 @@ class User extends Authenticatable
         'first_plan_at',
     ];
 
-    protected $hidden = ['password', 'remember_token'];
+    protected $hidden = [
+        'password',
+        'remember_token',
+    ];
 
     protected function casts(): array
     {
@@ -177,16 +419,36 @@ class User extends Authenticatable
 }
 ```
 
-Pontos importantes:
-- `password` usa o cast `hashed` — o Laravel automaticamente aplica bcrypt ao salvar
-- `is_admin` controla acesso ao painel admin
-- `first_review_at` e `first_plan_at` rastreiam a primeira interacao com IA
+**Pontos importantes:**
+- `'password' => 'hashed'` — o Laravel aplica bcrypt automaticamente ao salvar
+- `'is_admin' => 'boolean'` — converte 0/1 do banco para true/false no PHP
+- `projects()` — um usuario tem muitos projetos
 
-## Project
+---
+
+## Passo 4 — Criar o Model Project
+
+```bash
+sail artisan make:model Project
+```
+
+Edite `app/Models/Project.php`:
 
 ```php
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+
 class Project extends Model
 {
+    use HasFactory;
+
     protected $fillable = [
         'user_id',
         'project_status_id',
@@ -218,11 +480,36 @@ class Project extends Model
 }
 ```
 
-## CodeReview e ReviewFinding
+**Relacionamentos:**
+- `user()` — projeto pertence a um usuario
+- `status()` — FK explicita porque o nome da coluna (`project_status_id`) nao segue a convencao (`status_id`)
+- `codeReview()` — HasOne, cada projeto tem **uma** analise
+- `improvements()` — HasMany, cada projeto tem **muitas** melhorias (Kanban)
+
+---
+
+## Passo 5 — Criar o Model CodeReview
+
+```bash
+sail artisan make:model CodeReview
+```
+
+Edite `app/Models/CodeReview.php`:
 
 ```php
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+
 class CodeReview extends Model
 {
+    use HasFactory;
+
     protected $fillable = [
         'project_id',
         'review_status_id',
@@ -246,9 +533,41 @@ class CodeReview extends Model
 }
 ```
 
+**Este model e central para AI Engineering:**
+- `summary` — preenchido pelo Agent `CodeAnalyst` via `HasStructuredOutput` (Capitulo 8)
+- `review_status_id` — comeca como `1` (Pending), vira `2` (Completed) quando os Agents terminam
+- `findings()` — os 6 findings gerados pelos 3 sub-Agents (Capitulo 10)
+
+```bash
+# Commitar
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add User, Project and CodeReview models"
+```
+
+---
+
+## Passo 6 — Criar o Model ReviewFinding
+
+```bash
+sail artisan make:model ReviewFinding
+```
+
+Edite `app/Models/ReviewFinding.php`:
+
 ```php
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
 class ReviewFinding extends Model
 {
+    use HasFactory;
+
     protected $fillable = [
         'code_review_id',
         'finding_type_id',
@@ -284,11 +603,50 @@ class ReviewFinding extends Model
 }
 ```
 
-## Improvement
+**Este model armazena cada finding individual da IA:**
+
+Cada review gera **6 findings** (3 pilares x 2 tipos):
+
+| Pilar | Strength (ponto forte) | Improvement (melhoria) |
+|-------|----------------------|----------------------|
+| Architecture | Bom uso de Repository Pattern | Falta inversao de dependencia |
+| Performance | Queries otimizadas com eager loading | N+1 query no loop |
+| Security | CSRF token em todos os forms | SQL Injection via input |
+
+**Exemplo de dados reais (gerados pelo Agent):**
+
+```json
+{
+  "pillar": "security",
+  "severity": "critical",
+  "description": "SQL Injection: User input not parameterized in DB::select()",
+  "fix_suggestion": "Use DB::select('SELECT * FROM users WHERE id = ?', [$id])"
+}
+```
+
+---
+
+## Passo 7 — Criar o Model Improvement
+
+```bash
+sail artisan make:model Improvement
+```
+
+Edite `app/Models/Improvement.php`:
 
 ```php
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
 class Improvement extends Model
 {
+    use HasFactory;
+
     protected $fillable = [
         'project_id',
         'improvement_type_id',
@@ -325,63 +683,46 @@ class Improvement extends Model
 }
 ```
 
-## Enums PHP
+**Este model alimenta o Kanban de melhorias:**
 
-O projeto usa **Backed Enums** do PHP 8.5 para mapear os valores das lookup tables:
-
-```php
-enum ReviewPillarEnum: int
-{
-    case Architecture = 1;
-    case Performance = 2;
-    case Security = 3;
-}
-
-enum FindingTypeEnum: string
-{
-    case Strength = 'strength';
-    case Improvement = 'improvement';
-}
-
-enum ReviewStatusEnum: int
-{
-    case Pending = 1;
-    case Completed = 2;
-    case Failed = 3;
-}
-
-enum ProjectStatusEnum: int
-{
-    case Active = 1;
-    case Completed = 2;
-    case Archived = 3;
-}
-
-enum ImprovementTypeEnum: int
-{
-    case Refactor = 1;
-    case Fix = 2;
-    case Optimization = 3;
-}
-
-enum SeverityEnum: string
-{
-    case Low = 'low';
-    case Medium = 'medium';
-    case High = 'high';
-    case Critical = 'critical';
-}
+```
+ToDo (step=1)        InProgress (step=2)     Done (step=3)
++---------------+    +---------------+       +---------------+
+| Refatorar     |    | Corrigir N+1  |       | Adicionar     |
+| controller    | -> | query no loop | ->    | CSRF token    |
+| (priority: 1) |    | (priority: 2) |       | (priority: 3) |
++---------------+    +---------------+       +---------------+
 ```
 
-## DocEmbedding (Model RAG)
+- O usuario arrasta cards entre colunas, atualizando `improvement_step_id`
+- `order` controla a posicao dentro da coluna
+- `completed_at` e preenchido ao mover para "Done"
+
+---
+
+## Passo 8 — Criar o Model DocEmbedding (RAG)
+
+Este e o model mais importante para AI Engineering — e a base do sistema RAG.
+
+```bash
+sail artisan make:model DocEmbedding
+```
+
+Edite `app/Models/DocEmbedding.php`:
 
 ```php
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 use Pgvector\Laravel\HasNeighbors;
 use Pgvector\Laravel\Vector;
 
 class DocEmbedding extends Model
 {
-    use HasNeighbors;
+    use HasFactory, HasNeighbors;
 
     protected $fillable = [
         'source',
@@ -397,36 +738,174 @@ class DocEmbedding extends Model
 }
 ```
 
-O trait `HasNeighbors` do pacote `pgvector/pgvector` adiciona o metodo `nearestNeighbors()`:
+**Pontos importantes:**
+
+- `HasNeighbors` — trait do pacote `pgvector/pgvector` que adiciona o metodo `nearestNeighbors()`
+- `Vector::class` — cast que converte o array PHP para tipo `vector` do PostgreSQL
+- Sem relacionamentos (standalone) — usado via **Tool de RAG** (Capitulo 9), nao por FK
+
+### Como o RAG usa este model (preview do Capitulo 9)
 
 ```php
-// Buscar os 5 documentos mais similares a um vetor de query
+use Pgvector\Laravel\Distance;
+
+// 1. Gerar embedding da query do usuario
+$queryVector = Ai::embeddings()
+    ->provider(Lab::Gemini)
+    ->model('text-embedding-004')
+    ->embed('Como evitar SQL Injection em Laravel?');
+
+// 2. Buscar os 5 documentos mais similares
 $docs = DocEmbedding::query()
-    ->nearestNeighbors('embedding', $queryVector, Distance::Cosine)
+    ->nearestNeighbors('embedding', $queryVector[0]->embedding, Distance::Cosine)
     ->take(5)
     ->get();
+
+// 3. Retorna: PSR-12, OWASP SQL Injection, Laravel Security Best Practices...
+// 4. Esses docs sao injetados no prompt do Agent
 ```
 
-Este e o coracao do RAG — permite buscar documentacao relevante por similaridade semantica. Os embeddings sao gerados via `Ai::embeddings()` do Laravel AI SDK (Capitulo 9).
+```bash
+# Commitar models restantes
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add ReviewFinding, Improvement and DocEmbedding models"
+```
 
-## Diagrama de relacionamentos
+---
+
+## Passo 9 — Verificar os relacionamentos no Tinker
+
+Vamos testar se tudo esta funcionando. Primeiro, certifique-se de que o banco esta com as migrations e seeders rodados:
+
+```bash
+sail artisan migrate:fresh --seed
+```
+
+Agora abra o Tinker:
+
+```bash
+sail artisan tinker
+```
+
+```php
+// Verificar lookup tables
+App\Models\ProjectStatus::all()->pluck('name');
+// => ["Active", "Completed", "Archived"]
+
+App\Models\ReviewPillar::all()->pluck('name');
+// => ["Architecture", "Performance", "Security"]
+
+App\Models\ImprovementStep::all()->pluck('name');
+// => ["ToDo", "InProgress", "Done"]
+
+// Criar um usuario de teste
+$user = App\Models\User::create([
+    'name' => 'Diego',
+    'email' => 'diego@test.com',
+    'password' => 'password',
+]);
+
+// Criar um projeto
+$project = $user->projects()->create([
+    'project_status_id' => 1,
+    'name' => 'Meu Primeiro Projeto',
+    'language' => 'php',
+    'code_snippet' => '<?php echo "Hello World";',
+]);
+
+// Verificar relacionamento
+$project->user->name;
+// => "Diego"
+
+$project->status->name;
+// => "Active"
+
+$user->projects->count();
+// => 1
+
+// Criar um code review
+$review = $project->codeReview()->create([
+    'review_status_id' => 1,
+    'summary' => null,
+]);
+
+$review->status->name;
+// => "Pending"
+
+// Sair do Tinker
+exit
+```
+
+> Se todos os comandos retornaram os valores esperados, os Models e relacionamentos estao corretos.
+
+---
+
+## Passo 10 — Diagrama de relacionamentos completo
 
 ```
 User (1) -------- (N) Project
                         |
+                        +-- BelongsTo ProjectStatus
+                        |
                         +-- (1) CodeReview ---- (N) ReviewFinding
-                        |                           +-- BelongsTo FindingType
-                        |                           +-- BelongsTo ReviewPillar
+                        |       |                    +-- BelongsTo FindingType
+                        |       +-- BelongsTo        +-- BelongsTo ReviewPillar
+                        |           ReviewStatus
                         |
                         +-- (N) Improvement
-                        |       +-- BelongsTo ImprovementType
-                        |       +-- BelongsTo ImprovementStep
-                        |
-                        +-- BelongsTo ProjectStatus
+                                +-- BelongsTo ImprovementType
+                                +-- BelongsTo ImprovementStep
 
-DocEmbedding (standalone — sem FK, usado via RAG Tool)
+DocEmbedding (standalone — sem FK, usado via RAG Tool no Capitulo 9)
 ```
+
+---
+
+## Passo 11 — Commitar e criar PR
+
+```bash
+cd ~/laravel_ai
+git add .
+git commit -m "feat: verify models and relationships via tinker"
+
+# Push da branch
+git push -u origin feat/cap04-models
+
+# Criar Pull Request
+gh pr create --title "feat: models e relacionamentos" --body "Capitulo 04 - Eloquent Models, PHP Enums, relacionamentos e verificacao via Tinker"
+
+# Apos merge do PR no GitHub:
+git checkout main
+git pull
+```
+
+---
+
+## Resumo do que foi criado
+
+| Arquivo | O que faz |
+|---------|-----------|
+| `app/Enums/ReviewPillarEnum.php` | Architecture, Performance, Security |
+| `app/Enums/FindingTypeEnum.php` | Strength, Improvement |
+| `app/Enums/ReviewStatusEnum.php` | Pending, Completed, Failed |
+| `app/Enums/ProjectStatusEnum.php` | Active, Completed, Archived |
+| `app/Enums/ImprovementTypeEnum.php` | Refactor, Fix, Optimization |
+| `app/Enums/ImprovementStepEnum.php` | ToDo, InProgress, Done |
+| `app/Enums/SeverityEnum.php` | Low, Medium, High, Critical |
+| `app/Models/ProjectStatus.php` | Lookup model |
+| `app/Models/ReviewStatus.php` | Lookup model |
+| `app/Models/FindingType.php` | Lookup model |
+| `app/Models/ReviewPillar.php` | Lookup model |
+| `app/Models/ImprovementType.php` | Lookup model |
+| `app/Models/ImprovementStep.php` | Lookup model |
+| `app/Models/User.php` | Editado: +is_admin, +first_review_at, +projects() |
+| `app/Models/Project.php` | user(), status(), codeReview(), improvements() |
+| `app/Models/CodeReview.php` | project(), status(), findings() |
+| `app/Models/ReviewFinding.php` | codeReview(), type(), pillar() |
+| `app/Models/Improvement.php` | project(), type(), step() |
+| `app/Models/DocEmbedding.php` | HasNeighbors, Vector cast (RAG) |
 
 ## Proximo capitulo
 
-No [Capitulo 5 — Rotas e Livewire Volt](05-rotas-livewire.md) vamos ver como as rotas sao definidas e como os componentes Livewire Volt funcionam.
+No [Capitulo 5 — Rotas e Livewire Volt](05-rotas-livewire.md) vamos criar as rotas e os componentes Livewire Volt single-file para a interface do projeto.

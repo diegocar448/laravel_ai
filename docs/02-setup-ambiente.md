@@ -411,11 +411,13 @@ Este comando:
 
 Deve mostrar 3 containers: `laravel.test`, `pgsql`, `redis` — todos com status `Up`.
 
-> **Dica:** Crie um alias para facilitar:
+> **Dica:** Crie um alias para nao ter que digitar `./vendor/bin/sail` toda vez:
 > ```bash
-> alias sail='./vendor/bin/sail'
+> # Adicionar ao ~/.bashrc (ou ~/.zshrc) para ficar permanente
+> echo "alias sail='./vendor/bin/sail'" >> ~/.bashrc
+> source ~/.bashrc
 > ```
-> A partir daqui, usamos `sail` como alias nos comandos.
+> A partir daqui, **todos os capitulos** usam `sail` como alias. Se um comando `sail` retornar "command not found", rode o alias acima ou use `./vendor/bin/sail` no lugar.
 
 ---
 
