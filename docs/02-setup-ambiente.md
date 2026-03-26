@@ -63,15 +63,22 @@ git push -u origin main
 Em projetos profissionais, **nunca se faz push direto na `main`**. Vamos configurar o GitHub para obrigar o uso de branches e Pull Requests:
 
 1. Acesse o repositorio no GitHub
-2. Va em **Settings > Branches > Add branch ruleset**
+2. Va em **Settings > Rules > Rulesets > New branch ruleset**
 3. Configure:
    - **Ruleset name:** `main-protection`
-   - **Target branches:** Adicione `main`
-   - Ative **Require a pull request before merging**
-   - Ative **Require status checks to pass before merging** (quando tivermos CI no Capitulo 14)
-4. Clique em **Create**
+   - **Enforcement status:** `Active` (importante! Se ficar `Disabled` a regra nao funciona)
+   - **Target branches:** Clique em "Add target" e selecione `Default` (main)
+4. Em **Branch rules**, marque:
+   - [x] **Restrict deletions** — impede deletar a branch main
+   - [x] **Require a pull request before merging** — obriga criar PR
+     - Required approvals: `0` (ok para projeto solo, em equipe coloque 1+)
+   - [x] **Block force pushes** — impede `git push --force` na main
+5. Em **Allowed merge methods**, deixe: `Merge, Squash, Rebase`
+6. Clique em **Create**
 
-> **Por que?** Isso garante que todo codigo passe por review (mesmo que seja seu proprio review) e que os testes passem antes de entrar na `main`. E uma pratica padrao da industria.
+> **Nota:** O **Require status checks to pass** sera ativado no Capitulo 14 quando configurarmos o GitHub Actions. Por enquanto deixe desmarcado.
+
+> **Por que?** Isso garante que todo codigo passe por review (mesmo que seja seu proprio review) e que os testes passem antes de entrar na `main`. E uma pratica padrao da industria. Com essa configuracao, qualquer `git push origin main` sera rejeitado — voce **precisa** criar uma branch, fazer push dela e abrir um PR.
 
 ### Fluxo de trabalho com branches
 
