@@ -225,9 +225,15 @@ Uma **aplicacao SaaS de AI Engineering completa** que:
 ```bash
 # 0. Criar repositorio e versionar desde o inicio
 mkdir laravel_ai && cd laravel_ai
-git init
-mkdir docs
+git init && mkdir docs
 git add . && git commit -m "chore: init project structure"
+gh repo create codereview-ai --public --source=. --push
+
+# Proteger a branch main no GitHub:
+# Settings > Branches > Add ruleset > Require PR before merging
+
+# Criar branch para o capitulo 2
+git checkout -b feat/cap02-setup
 
 # 1. Criar projeto Laravel via Docker (nada instalado no host)
 curl -s "https://laravel.build/codereview-ai?with=pgsql,redis" | bash
@@ -263,11 +269,14 @@ cd codereview-ai
 
 # 6. Acesse http://localhost
 
-# 7. Versionar tudo
+# 7. Versionar via branch + PR (nunca push direto na main)
 cd ..  # volta para laravel_ai/
 git add .
 git commit -m "feat: setup completo com laravel/ai, pgvector e livewire"
-git push
+git push -u origin feat/cap02-setup
+gh pr create --title "feat: setup do ambiente" --body "Capitulo 02 completo"
+# Merge o PR no GitHub, depois:
+git checkout main && git pull
 ```
 
 ## Licenca

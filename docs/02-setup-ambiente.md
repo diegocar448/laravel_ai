@@ -58,22 +58,103 @@ git branch -M main
 git push -u origin main
 ```
 
-### Estrategia de commits ao longo do tutorial
+### Proteger a branch main
 
-Ao final de cada passo importante, faca um commit descritivo:
+Em projetos profissionais, **nunca se faz push direto na `main`**. Vamos configurar o GitHub para obrigar o uso de branches e Pull Requests:
+
+1. Acesse o repositorio no GitHub
+2. Va em **Settings > Branches > Add branch ruleset**
+3. Configure:
+   - **Ruleset name:** `main-protection`
+   - **Target branches:** Adicione `main`
+   - Ative **Require a pull request before merging**
+   - Ative **Require status checks to pass before merging** (quando tivermos CI no Capitulo 14)
+4. Clique em **Create**
+
+> **Por que?** Isso garante que todo codigo passe por review (mesmo que seja seu proprio review) e que os testes passem antes de entrar na `main`. E uma pratica padrao da industria.
+
+### Fluxo de trabalho com branches
+
+A partir de agora, **todo trabalho sera feito em branches**. O fluxo para cada capitulo:
 
 ```
-chore: init project structure              <- Passo 0 (este)
-feat: create laravel project with sail     <- Passo 1
-feat: configure pgvector in compose.yaml   <- Passo 2
-feat: configure .env for pgsql and gemini  <- Passo 3
-feat: install laravel/ai and dependencies  <- Passo 5
-feat: add database migrations              <- Capitulo 3
-feat: add eloquent models                  <- Capitulo 4
+main (protegida — nao aceita push direto)
+  |
+  +-- git checkout -b feat/cap02-setup
+  |     |
+  |     +-- commits do capitulo 2
+  |     |
+  |     +-- git push -u origin feat/cap02-setup
+  |     |
+  |     +-- Criar PR no GitHub (ou via gh pr create)
+  |     |
+  |     +-- Review + Merge na main
+  |
+  +-- git checkout -b feat/cap03-database
+  |     |
+  |     +-- commits do capitulo 3
+  |     ...
+```
+
+```bash
+# Exemplo: criar branch para o Capitulo 2
+git checkout -b feat/cap02-setup
+
+# ... fazer as alteracoes do capitulo ...
+
+# Commitar
+git add .
+git commit -m "feat: setup ambiente com docker, pgvector e laravel/ai"
+
+# Push da branch
+git push -u origin feat/cap02-setup
+
+# Criar Pull Request via GitHub CLI
+gh pr create --title "feat: setup do ambiente" --body "Capitulo 02 - Docker, pgvector, .env e dependencias"
+
+# Apos review, fazer merge via GitHub (botao na interface)
+# Ou via CLI:
+gh pr merge --squash
+
+# Voltar para main atualizada
+git checkout main
+git pull
+
+# Criar branch para o proximo capitulo
+git checkout -b feat/cap03-database
+```
+
+### Convencao de nomes
+
+| Tipo | Padrao da branch | Exemplo |
+|------|-----------------|---------|
+| Feature | `feat/cap{NN}-descricao` | `feat/cap02-setup` |
+| Bug fix | `fix/descricao` | `fix/pgvector-extension` |
+| Infra | `chore/descricao` | `chore/github-actions` |
+| Docs | `docs/descricao` | `docs/readme-update` |
+
+> **Dica:** Use [Conventional Commits](https://www.conventionalcommits.org/) nas mensagens — `feat:` para features, `fix:` para correcoes, `chore:` para infraestrutura, `docs:` para documentacao. Isso facilita gerar changelogs e entender o historico.
+
+### Resumo dos commits por capitulo
+
+```
+feat/cap02-setup:
+  feat: create laravel project with sail (pgsql + redis)
+  feat: configure pgvector in compose.yaml and init script
+  feat: configure .env for pgsql, redis and gemini
+  feat: install laravel/ai, pgvector, livewire and pest
+
+feat/cap03-database:
+  feat: add database migrations and pgvector setup
+
+feat/cap04-models:
+  feat: add eloquent models, enums and relationships
+
+feat/cap05-routes:
+  feat: add routes and livewire volt components
+
 ...e assim por diante
 ```
-
-> **Dica:** Use [Conventional Commits](https://www.conventionalcommits.org/) — `feat:` para features, `fix:` para correcoes, `chore:` para infraestrutura, `docs:` para documentacao. Isso facilita gerar changelogs e entender o historico.
 
 ---
 
@@ -113,11 +194,10 @@ cd codereview-ai
 > ```
 
 ```bash
-# Commitar o projeto Laravel recem-criado
+# Commitar o projeto Laravel recem-criado (na branch feat/cap02-setup)
 cd ..  # volta para laravel_ai/
 git add .
 git commit -m "feat: create laravel project with sail (pgsql + redis)"
-git push
 ```
 
 > **Opcao B (manual):** Se o `laravel.build` nao funcionar na sua rede, voce pode criar manualmente:
@@ -223,7 +303,6 @@ CREATE EXTENSION IF NOT EXISTS vector;
 cd ..  # volta para laravel_ai/
 git add .
 git commit -m "feat: configure pgvector in compose.yaml and init script"
-git push
 ```
 
 ---
@@ -299,7 +378,6 @@ Dentro da rede Docker, cada servico e acessivel pelo **nome do servico** definid
 cd ..  # volta para laravel_ai/
 git add .
 git commit -m "feat: configure .env for pgsql, redis and gemini"
-git push
 ```
 
 ---
@@ -370,7 +448,14 @@ sail npm run dev
 cd ..  # volta para laravel_ai/
 git add .
 git commit -m "feat: install laravel/ai, pgvector, livewire and pest"
-git push
+
+# Push da branch e criar PR
+git push -u origin feat/cap02-setup
+gh pr create --title "feat: setup do ambiente" --body "Capitulo 02 - Docker, pgvector, .env, Laravel AI SDK e dependencias"
+
+# Apos merge do PR no GitHub:
+git checkout main
+git pull
 ```
 
 ### O que cada comando faz por tras
