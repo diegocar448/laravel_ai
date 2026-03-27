@@ -2,20 +2,87 @@
 
 > **Este capitulo cobre os pilares: Prompt Engineering (1) e Structured Output (2)**
 
-## Laravel AI SDK — Agents
+Neste capitulo vamos criar o **Agent CodeAnalyst**, o **prompt Blade**, o **service de orquestracao** e configurar **streaming** e **failover** entre providers. Ao final, voce tera o pipeline completo: formulario -> Agent -> Structured Output -> banco de dados.
 
-O **Laravel AI SDK** (`laravel/ai`) e o toolkit first-party oficial do Laravel para IA. O conceito central sao **Agents** — classes PHP que encapsulam instructions, tools e structured output.
+## Antes de comecar
+
+> **Lembrete:** Se `sail` retornar "command not found", crie o alias (feito no Capitulo 2):
+> ```bash
+> alias sail='./vendor/bin/sail'
+> ```
+
+Crie a branch para este capitulo:
 
 ```bash
-# Instalacao (ja feita no Capitulo 2)
-sail composer require laravel/ai
-
-# Publicar config e migrations
-sail artisan vendor:publish --provider="Laravel\Ai\AiServiceProvider"
-sail artisan migrate
+cd ~/laravel_ai
+git checkout main && git pull
+git checkout -b feat/cap08-agents
+cd codereview-ai
 ```
 
-### Configuracao
+---
+
+## Visao geral da arquitetura
+
+Antes de comecar, entenda o fluxo completo que vamos construir:
+
+```
+CodeReviewForm (Livewire)
+       |
+       | dispatch(AnalyzeCodeJob)
+       v
+CodeAnalysisService
+       |
+       | new CodeAnalyst($codeReview)
+       v
+CodeAnalyst Agent
+  +-- implements Agent, HasStructuredOutput
+  +-- use Promptable
+  +-- instructions() -> Blade template
+  +-- schema() -> JsonSchema
+       |
+       | ->prompt($context, provider: Lab::Gemini)
+       v
+Gemini API (failover: OpenAI -> Anthropic)
+       |
+       | Structured Output (JSON)
+       v
+{ summary: "...", score: 72, priority_finding_ids: [2, 5, 6] }
+       |
+       | $codeReview->update(...)
+       v
+Banco de dados (code_reviews, review_findings)
+```
+
+### Structured Output — o conceito
+
+Normalmente, quando pedimos algo a um LLM, recebemos texto livre. Com **Structured Output**, definimos um schema e a IA e forcada a responder nesse formato exato:
+
+```
+Sem Structured Output:
+"O codigo tem alguns problemas de seguranca, como SQL injection..."
+
+Com Structured Output:
+{
+    "summary": "Analise detalhada em markdown...",
+    "score": 72,
+    "priority_finding_ids": [2, 5, 6]
+}
+```
+
+No Laravel AI SDK, usamos a interface `HasStructuredOutput` com `JsonSchema`.
+
+---
+
+## Passo 1 — Verificar a configuracao do Laravel AI SDK
+
+O pacote `laravel/ai` ja foi instalado no Capitulo 2. Verifique se o arquivo `config/ai.php` existe:
+
+```bash
+cat config/ai.php
+```
+
+O conteudo deve ser:
 
 ```php
 // config/ai.php (publicado pelo Laravel AI SDK)
@@ -38,44 +105,36 @@ return [
 ];
 ```
 
+Se o arquivo nao existir, publique:
+
+```bash
+sail artisan vendor:publish --provider="Laravel\Ai\AiServiceProvider"
+sail artisan migrate
+```
+
 > **Por que Gemini?** O Google oferece tier gratuito (sem cartao de credito): 250 req/dia no `gemini-2.5-flash` e 1000 req/dia no `flash-lite`. Gere sua chave em [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
 
----
+Adicione a chave ao `.env`:
 
-## Structured Output — o conceito
-
-Normalmente, quando pedimos algo a um LLM, recebemos texto livre. Com **Structured Output**, definimos um schema e a IA e forcada a responder nesse formato exato.
-
+```bash
+# No arquivo .env
+GEMINI_API_KEY=sua-chave-aqui
 ```
-Sem Structured Output:
-"O codigo tem alguns problemas de seguranca, como SQL injection..."
-
-Com Structured Output:
-{
-    "summary": "Analise detalhada em markdown...",
-    "score": 72,
-    "priority_finding_ids": [2, 5, 6]
-}
-```
-
-No Laravel AI SDK, usamos a interface `HasStructuredOutput` com `JsonSchema`.
 
 ---
 
-## Criando o CodeAnalyst Agent
+## Passo 2 — Criar o Agent CodeAnalyst via Artisan
 
-### Scaffold via Artisan
+O Laravel AI SDK oferece um comando Artisan para gerar Agents. Vamos criar o `CodeAnalyst` com suporte a Structured Output:
 
 ```bash
 sail artisan make:agent CodeAnalyst --structured
 ```
 
-Isso cria o arquivo em `app/Ai/Agents/CodeAnalyst.php`.
-
-### Implementacao completa
+Isso cria o arquivo em `app/Ai/Agents/CodeAnalyst.php`. Edite com o conteudo completo:
 
 ```php
-// app/Ai/Agents/CodeAnalyst.php
+<?php
 
 namespace App\Ai\Agents;
 
@@ -126,37 +185,35 @@ class CodeAnalyst implements Agent, HasStructuredOutput
 }
 ```
 
-### Uso do Agent
+**Pontos importantes:**
+- `Agent` — contrato do SDK que exige `instructions()` (system prompt)
+- `HasStructuredOutput` — contrato que exige `schema()` (formato da resposta)
+- `Promptable` — trait que adiciona os metodos `prompt()` e `stream()`
+- `instructions()` — renderiza um template Blade, permitindo interpolar dados do projeto
+- `schema()` — define tipagem forte: `string`, `integer` com min/max, `array`
 
-```php
-use App\Ai\Agents\CodeAnalyst;
-use Laravel\Ai\Enums\Lab;
-
-// Criar o agent com o code review
-$agent = new CodeAnalyst($codeReview);
-
-// Prompt com o contexto do codigo
-$response = $agent->prompt(
-    $this->buildContext($codeReview),
-    provider: Lab::Gemini,
-    model: 'gemini-2.5-flash',
-);
-
-// Resposta SEMPRE tipada (nunca null, nunca formato errado)
-$summary = $response['summary'];             // string
-$score = $response['score'];                 // integer 0-100
-$priorityIds = $response['priority_finding_ids']; // array de integers
+```bash
+# Commitar
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add CodeAnalyst agent with structured output"
 ```
 
 ---
 
-## System Prompt (Blade template)
+## Passo 3 — Criar o template Blade do system prompt
 
-O prompt do sistema define o papel da IA como um **Code Reviewer Senior**:
+O prompt do sistema define o papel da IA como um **Code Reviewer Senior**. Usamos Blade para interpolar dados dinamicos do projeto.
+
+Crie o diretorio e o arquivo:
+
+```bash
+mkdir -p resources/views/prompts
+```
+
+Crie `resources/views/prompts/code-review-system-prompt.blade.php`:
 
 ```php
-// resources/views/prompts/code-review-system-prompt.blade.php
-
 Voce e um Code Reviewer Senior com mais de 20 anos de experiencia em
 engenharia de software e revisao de codigo em equipes de alta performance.
 
@@ -182,18 +239,35 @@ Linguagem: {{ $codeReview->project->language }}
 Projeto: {{ $codeReview->project->name }}
 ```
 
-Note como o Blade permite interpolar dados do projeto diretamente no prompt:
-- `{{ $codeReview->project->language }}` — "php"
-- `{{ $codeReview->project->name }}` — "API de Pagamentos"
+**Por que Blade para prompts?**
+- `{{ $codeReview->project->language }}` — interpola "php", "javascript", etc.
+- `{{ $codeReview->project->name }}` — interpola "API de Pagamentos", etc.
+- Permite usar `@if`, `@foreach` para prompts condicionais
+- Mantemos o prompt como arquivo versionado, nao hardcoded no PHP
+
+```bash
+# Commitar
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add Blade system prompt template for CodeAnalyst"
+```
 
 ---
 
-## CodeAnalysisService — Orquestra o Agent
+## Passo 4 — Criar o CodeAnalysisService
 
-O service conecta o Agent com o Eloquent:
+O service orquestra o Agent: carrega dados, chama o Agent, salva o resultado no banco.
+
+Crie o diretorio e o arquivo:
+
+```bash
+mkdir -p app/Services
+```
+
+Crie `app/Services/CodeAnalysisService.php`:
 
 ```php
-// app/Services/CodeAnalysisService.php
+<?php
 
 namespace App\Services;
 
@@ -250,13 +324,47 @@ class CodeAnalysisService
 }
 ```
 
+**Fluxo do service:**
+
+```
+handle($codeReview)
+   |
+   +-- 1. load() — carrega project, findings com type e pillar (evita N+1)
+   |
+   +-- 2. prompt() — envia contexto ao Gemini, recebe JSON tipado
+   |       |
+   |       +-- buildContext() — monta JSON com dados do projeto e findings
+   |
+   +-- 3. update() — salva summary e muda status para Completed
+   |
+   +-- 4. foreach — marca os 3 findings prioritarios com agent_flagged_at
+```
+
+**Pontos importantes:**
+- `$response['summary']` — acesso direto como array, nunca null, nunca formato errado
+- `$response['score']` — integer entre 0-100 (garantido pelo schema)
+- `$response['priority_finding_ids']` — array de integers (garantido pelo schema)
+- Se a IA retornar formato invalido, o SDK lanca excecao **antes** de chegar ao `update()`
+
+```bash
+# Commitar
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add CodeAnalysisService to orchestrate agent"
+```
+
 ---
 
-## Streaming de respostas
+## Passo 5 — Adicionar streaming de respostas
 
-O Laravel AI SDK suporta streaming nativo:
+O Laravel AI SDK suporta streaming nativo — a resposta aparece em tempo real, util para UX.
+
+O Agent `CodeAnalyst` ja possui o metodo `stream()` via trait `Promptable`. Veja como usar:
 
 ```php
+use App\Ai\Agents\CodeAnalyst;
+use Laravel\Ai\Enums\Lab;
+
 // Streaming — resposta aparece em tempo real
 $stream = (new CodeAnalyst($codeReview))->stream(
     $context,
@@ -269,15 +377,23 @@ foreach ($stream as $chunk) {
 }
 ```
 
+**Quando usar streaming:**
+- Em endpoints HTTP onde o usuario aguarda a resposta na tela
+- Em componentes Livewire com `wire:stream`
+- **Nao** use em Jobs (nao tem quem receber os chunks)
+
 ---
 
-## Failover entre providers
+## Passo 6 — Configurar failover entre providers
 
-Se o Gemini falhar, o SDK pode automaticamente tentar outro provider:
+Se o Gemini falhar (quota excedida, timeout, erro 500), o SDK pode automaticamente tentar outro provider.
+
+Edite o metodo `handle()` do `CodeAnalysisService` para adicionar failover:
 
 ```php
+// No metodo handle() do CodeAnalysisService, substitua o prompt() por:
 $response = (new CodeAnalyst($codeReview))->prompt(
-    $context,
+    $this->buildContext($codeReview),
     provider: Lab::Gemini,
     model: 'gemini-2.5-flash',
     failover: [
@@ -287,14 +403,48 @@ $response = (new CodeAnalyst($codeReview))->prompt(
 );
 ```
 
+**Fluxo de failover:**
+
+```
+1. Tenta Gemini gemini-2.5-flash (gratis)
+   |-- Sucesso? -> retorna resposta
+   |-- Falhou?
+       |
+       2. Tenta OpenAI gpt-4o-mini (pago)
+          |-- Sucesso? -> retorna resposta
+          |-- Falhou?
+              |
+              3. Tenta Anthropic claude-haiku (pago)
+                 |-- Sucesso? -> retorna resposta
+                 |-- Falhou? -> lanca excecao
+```
+
+> **Nota:** Para usar failover, configure as API keys dos providers alternativos no `.env`. O failover e opcional — se voce so usa Gemini, pode omitir o parametro `failover`.
+
+```bash
+# Commitar
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add streaming and failover support to CodeAnalysisService"
+```
+
 ---
 
-## CodeReviewForm — trigger da analise
+## Passo 7 — Criar o CodeReviewForm (trigger da analise)
 
-O formulario coleta as informacoes do codigo e dispara o job:
+O formulario Livewire coleta as informacoes do codigo e dispara o job de analise.
+
+Crie `app/Livewire/Forms/CodeReviewForm.php`:
 
 ```php
-// app/Livewire/Forms/CodeReviewForm.php
+<?php
+
+namespace App\Livewire\Forms;
+
+use App\Jobs\AnalyzeCodeJob;
+use App\Models\CodeReview;
+use App\Models\Project;
+use Livewire\Form;
 
 class CodeReviewForm extends Form
 {
@@ -345,9 +495,98 @@ class CodeReviewForm extends Form
 }
 ```
 
+**Fluxo do formulario:**
+
+```
+Usuario preenche 6 campos (3 pilares x 2 tipos)
+   |
+   +-- store() cria CodeReview com status Pending
+   |
+   +-- createFindings() cria 6 ReviewFinding
+   |
+   +-- AnalyzeCodeJob::dispatch() — enfileira job assincrono
+   |
+   +-- O job chama CodeAnalysisService::handle()
+       que chama o Agent CodeAnalyst
+```
+
+```bash
+# Commitar
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add CodeReviewForm to trigger AI analysis"
+```
+
 ---
 
-## Providers suportados
+## Passo 8 — Verificar o Agent no Tinker
+
+Vamos testar se o Agent funciona corretamente. Primeiro, certifique-se de que o banco esta atualizado:
+
+```bash
+sail artisan migrate:fresh --seed
+```
+
+Abra o Tinker:
+
+```bash
+sail artisan tinker
+```
+
+```php
+// Criar usuario e projeto de teste
+$user = App\Models\User::create([
+    'name' => 'Diego',
+    'email' => 'diego@test.com',
+    'password' => 'password',
+]);
+
+$project = $user->projects()->create([
+    'project_status_id' => 1,
+    'name' => 'API de Pagamentos',
+    'language' => 'php',
+    'code_snippet' => '<?php
+class PaymentController {
+    public function store(Request $request) {
+        $amount = $request->input("amount");
+        DB::select("SELECT * FROM payments WHERE amount = " . $amount);
+        return response()->json(["ok" => true]);
+    }
+}',
+]);
+
+// Criar code review com findings
+$review = $project->codeReview()->create([
+    'review_status_id' => 1,
+]);
+
+$review->findings()->create([
+    'review_pillar_id' => 3, // Security
+    'finding_type_id' => 2,  // Improvement
+    'description' => 'SQL Injection via concatenacao de input no DB::select()',
+]);
+
+// Verificar que o Agent instancia corretamente
+$agent = new App\Ai\Agents\CodeAnalyst($review);
+echo $agent->instructions();
+// Deve exibir o prompt com "php" e "API de Pagamentos" interpolados
+
+// Testar chamada real ao Agent (requer GEMINI_API_KEY no .env)
+// $service = new App\Services\CodeAnalysisService();
+// $service->handle($review);
+// $review->refresh();
+// echo $review->summary; // Analise em markdown
+// echo $review->status->name; // "Completed"
+
+// Sair do Tinker
+exit
+```
+
+> Se o `instructions()` exibiu o prompt com os dados interpolados, o Agent esta configurado corretamente. Descomente as linhas do `$service` para testar a chamada real ao Gemini (requer API key).
+
+---
+
+## Passo 9 — Providers suportados (referencia)
 
 | Provider | Modelos | Custo | Ideal para |
 |----------|---------|-------|-----------|
@@ -361,18 +600,35 @@ Para trocar de provider, basta alterar `AI_PROVIDER` e a API key no `.env`.
 
 ---
 
-## Comparacao: Antes (Prism direto) vs Agora (Laravel AI SDK)
+## Passo 10 — Commitar e criar PR
 
-| Aspecto | Prism PHP (direto) | Laravel AI SDK (Agent) |
-|---------|-------------------|----------------------|
-| Criacao | Manual | `sail artisan make:agent` |
-| System prompt | `->withSystemPrompt(...)` | `instructions()` metodo |
-| Structured Output | `->withStructuredOutput(schema: [...])` | `HasStructuredOutput` + `schema()` |
-| Acesso resposta | `json_decode($response->text)` | `$response['field']` direto |
-| Streaming | Manual | `->stream()` nativo |
-| Failover | Manual | `failover: [...]` parametro |
-| Testes | Manual | `FakeAi::agent(...)` |
-| Conversas | Manual | `RemembersConversations` trait |
+```bash
+cd ~/laravel_ai
+git add .
+git commit -m "feat: verify agent setup via tinker"
+
+# Push da branch
+git push -u origin feat/cap08-agents
+
+# Criar Pull Request
+gh pr create --title "feat: agents e structured output" --body "Capitulo 08 - CodeAnalyst Agent, Blade prompt, CodeAnalysisService, streaming, failover e CodeReviewForm"
+
+# Apos merge do PR no GitHub:
+git checkout main
+git pull
+```
+
+---
+
+## Resumo do que foi criado
+
+| Arquivo | O que faz |
+|---------|-----------|
+| `config/ai.php` | Configuracao do Laravel AI SDK (providers e API keys) |
+| `app/Ai/Agents/CodeAnalyst.php` | Agent com `HasStructuredOutput` + `Promptable` |
+| `resources/views/prompts/code-review-system-prompt.blade.php` | System prompt Blade com dados interpolados do projeto |
+| `app/Services/CodeAnalysisService.php` | Orquestra Agent -> Eloquent (com failover) |
+| `app/Livewire/Forms/CodeReviewForm.php` | Formulario que cria findings e dispara job de IA |
 
 ## Proximo capitulo
 

@@ -1,6 +1,26 @@
 # Capitulo 13 — API REST e Swagger
 
-> **Neste capitulo:** Criamos endpoints REST para integracao externa (CI/CD, GitHub Actions, CLIs) e documentamos com Swagger/OpenAPI.
+> **Este capitulo cobre:** Endpoints REST para integracao externa (CI/CD, GitHub Actions, CLIs) e documentacao interativa com Swagger/OpenAPI.
+
+Neste capitulo vamos criar uma **API REST completa** com autenticacao via Sanctum, documentada com Swagger. Ao final, voce tera endpoints para criar projetos, disparar code reviews e gerenciar melhorias — tudo acessivel por ferramentas externas, pipelines e apps terceiros.
+
+## Antes de comecar
+
+> **Lembrete:** Se `sail` retornar "command not found", crie o alias (feito no Capitulo 2):
+> ```bash
+> alias sail='./vendor/bin/sail'
+> ```
+
+Crie a branch para este capitulo:
+
+```bash
+cd ~/laravel_ai
+git checkout main && git pull
+git checkout -b feat/cap13-api
+cd codereview-ai
+```
+
+---
 
 ## Por que uma API REST?
 
@@ -14,14 +34,14 @@ O projeto usa Livewire para a UI, mas uma API REST permite:
 
 ---
 
-## Instalacao do L5-Swagger
+## Passo 1 — Instalar o L5-Swagger
 
 ```bash
 sail composer require darkaonline/l5-swagger
 sail artisan vendor:publish --provider="L5Swagger\L5SwaggerServiceProvider"
 ```
 
-### Configuracao
+Edite `config/l5-swagger.php` — ajuste as seguintes chaves dentro do array `defaults`:
 
 ```php
 // config/l5-swagger.php (principais ajustes)
@@ -48,16 +68,23 @@ return [
 ];
 ```
 
-### .env
+Adicione as variaveis ao `.env`:
 
 ```env
-L5_SWAGGER_GENERATE_ALWAYS=true    # dev: regenera automaticamente
+L5_SWAGGER_GENERATE_ALWAYS=true
 L5_SWAGGER_CONST_HOST=http://localhost/api
+```
+
+```bash
+# Commitar
+cd ~/laravel_ai
+git add .
+git commit -m "feat: install and configure L5-Swagger"
 ```
 
 ---
 
-## Autenticacao da API — Laravel Sanctum
+## Passo 2 — Configurar autenticacao com Laravel Sanctum
 
 ```bash
 sail artisan install:api
@@ -69,10 +96,71 @@ Isso instala o Sanctum e cria a migration `personal_access_tokens`.
 sail artisan migrate
 ```
 
-### Token endpoint
+**Verificacao:** confirme que a tabela foi criada:
+
+```bash
+sail artisan migrate:status | grep personal_access_tokens
+```
+
+Deve mostrar status `Ran`.
+
+```bash
+# Commitar
+cd ~/laravel_ai
+git add .
+git commit -m "feat: install Sanctum and run api migration"
+```
+
+---
+
+## Passo 3 — Adicionar annotation base do Swagger no Controller
+
+O L5-Swagger precisa de uma annotation `OA\Info` em algum controller. Vamos adicionar no `Controller.php` base.
+
+Edite `app/Http/Controllers/Controller.php`:
 
 ```php
-// app/Http/Controllers/Api/AuthController.php
+<?php
+
+namespace App\Http\Controllers;
+
+use OpenApi\Attributes as OA;
+
+#[OA\Info(
+    title: 'CodeReview AI API',
+    version: '1.0.0',
+    description: 'API REST para code review com IA — Laravel AI SDK + Gemini',
+    contact: new OA\Contact(name: 'CodeReview AI', email: 'api@codereview.ai'),
+)]
+#[OA\Server(url: 'http://localhost', description: 'Local')]
+#[OA\SecurityScheme(
+    securityScheme: 'sanctum',
+    type: 'http',
+    scheme: 'bearer',
+    description: 'Bearer token via POST /api/auth/token'
+)]
+abstract class Controller {}
+```
+
+```bash
+# Commitar
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add OpenAPI base annotation to Controller"
+```
+
+---
+
+## Passo 4 — Criar o AuthController (token endpoint)
+
+```bash
+sail artisan make:controller Api/AuthController
+```
+
+Edite `app/Http/Controllers/Api/AuthController.php`:
+
+```php
+<?php
 
 namespace App\Http\Controllers\Api;
 
@@ -128,67 +216,76 @@ class AuthController extends Controller
 }
 ```
 
----
-
-## Annotation base do Swagger
-
-```php
-// app/Http/Controllers/Controller.php
-
-namespace App\Http\Controllers;
-
-use OpenApi\Attributes as OA;
-
-#[OA\Info(
-    title: 'CodeReview AI API',
-    version: '1.0.0',
-    description: 'API REST para code review com IA — Laravel AI SDK + Gemini',
-    contact: new OA\Contact(name: 'CodeReview AI', email: 'api@codereview.ai'),
-)]
-#[OA\Server(url: 'http://localhost', description: 'Local')]
-#[OA\SecurityScheme(
-    securityScheme: 'sanctum',
-    type: 'http',
-    scheme: 'bearer',
-    description: 'Bearer token via POST /api/auth/token'
-)]
-abstract class Controller {}
+```bash
+# Commitar
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add AuthController with Sanctum token endpoint"
 ```
 
 ---
 
-## Endpoints da API
+## Passo 5 — Criar a ProjectPolicy
 
-### Rotas
+Antes dos controllers que usam autorizacao, precisamos da Policy.
 
-```php
-// routes/api.php
-
-use App\Http\Controllers\Api\AuthController;
-use App\Http\Controllers\Api\ProjectController;
-use App\Http\Controllers\Api\CodeReviewController;
-use App\Http\Controllers\Api\ImprovementController;
-
-Route::post('/auth/token', [AuthController::class, 'token']);
-
-Route::middleware('auth:sanctum')->group(function () {
-    // Projects
-    Route::apiResource('projects', ProjectController::class);
-
-    // Code Reviews
-    Route::post('/projects/{project}/reviews', [CodeReviewController::class, 'store']);
-    Route::get('/reviews/{codeReview}', [CodeReviewController::class, 'show']);
-
-    // Improvements
-    Route::get('/projects/{project}/improvements', [ImprovementController::class, 'index']);
-    Route::patch('/improvements/{improvement}', [ImprovementController::class, 'update']);
-});
+```bash
+sail artisan make:policy ProjectPolicy --model=Project
 ```
 
-### ProjectController
+Edite `app/Policies/ProjectPolicy.php`:
 
 ```php
-// app/Http/Controllers/Api/ProjectController.php
+<?php
+
+namespace App\Policies;
+
+use App\Models\Project;
+use App\Models\User;
+
+class ProjectPolicy
+{
+    public function view(User $user, Project $project): bool
+    {
+        return $user->id === $project->user_id;
+    }
+
+    public function update(User $user, Project $project): bool
+    {
+        return $user->id === $project->user_id;
+    }
+
+    public function delete(User $user, Project $project): bool
+    {
+        return $user->id === $project->user_id;
+    }
+}
+```
+
+**O que cada metodo faz:**
+- `view()` — so o dono do projeto pode visualizar
+- `update()` — so o dono pode disparar reviews e editar
+- `delete()` — so o dono pode deletar
+
+```bash
+# Commitar
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add ProjectPolicy for authorization"
+```
+
+---
+
+## Passo 6 — Criar o ProjectController da API
+
+```bash
+sail artisan make:controller Api/ProjectController
+```
+
+Edite `app/Http/Controllers/Api/ProjectController.php`:
+
+```php
+<?php
 
 namespace App\Http\Controllers\Api;
 
@@ -313,10 +410,25 @@ class ProjectController extends Controller
 }
 ```
 
-### CodeReviewController
+```bash
+# Commitar
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add API ProjectController with OpenAPI attributes"
+```
+
+---
+
+## Passo 7 — Criar o CodeReviewController da API
+
+```bash
+sail artisan make:controller Api/CodeReviewController
+```
+
+Edite `app/Http/Controllers/Api/CodeReviewController.php`:
 
 ```php
-// app/Http/Controllers/Api/CodeReviewController.php
+<?php
 
 namespace App\Http\Controllers\Api;
 
@@ -434,15 +546,29 @@ class CodeReviewController extends Controller
 }
 ```
 
-### ImprovementController
+```bash
+# Commitar
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add API CodeReviewController with OpenAPI attributes"
+```
+
+---
+
+## Passo 8 — Criar o ImprovementController da API
+
+```bash
+sail artisan make:controller Api/ImprovementController
+```
+
+Edite `app/Http/Controllers/Api/ImprovementController.php`:
 
 ```php
-// app/Http/Controllers/Api/ImprovementController.php
+<?php
 
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\GenerateImprovementsJob;
 use App\Models\Improvement;
 use App\Models\Project;
 use Illuminate\Http\Request;
@@ -514,12 +640,27 @@ class ImprovementController extends Controller
 }
 ```
 
+```bash
+# Commitar
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add API ImprovementController with OpenAPI attributes"
+```
+
 ---
 
-## Schemas OpenAPI
+## Passo 9 — Criar o Schema OpenAPI para o Project
+
+Crie o diretorio e o arquivo de schema:
+
+```bash
+mkdir -p app/Http/Resources/Schemas
+```
+
+Crie `app/Http/Resources/Schemas/ProjectSchema.php`:
 
 ```php
-// app/Http/Resources/Schemas/ProjectSchema.php
+<?php
 
 namespace App\Http\Resources\Schemas;
 
@@ -543,39 +684,96 @@ use OpenApi\Attributes as OA;
 class ProjectSchema {}
 ```
 
+```bash
+# Commitar
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add ProjectSchema for OpenAPI documentation"
+```
+
 ---
 
-## Gerar documentacao Swagger
+## Passo 10 — Configurar as rotas da API
+
+Edite `routes/api.php`:
+
+```php
+<?php
+
+use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\ProjectController;
+use App\Http\Controllers\Api\CodeReviewController;
+use App\Http\Controllers\Api\ImprovementController;
+
+Route::post('/auth/token', [AuthController::class, 'token']);
+
+Route::middleware('auth:sanctum')->group(function () {
+    // Projects
+    Route::apiResource('projects', ProjectController::class);
+
+    // Code Reviews
+    Route::post('/projects/{project}/reviews', [CodeReviewController::class, 'store']);
+    Route::get('/reviews/{codeReview}', [CodeReviewController::class, 'show']);
+
+    // Improvements
+    Route::get('/projects/{project}/improvements', [ImprovementController::class, 'index']);
+    Route::patch('/improvements/{improvement}', [ImprovementController::class, 'update']);
+});
+```
+
+**Verificacao:** liste as rotas para confirmar que foram registradas:
 
 ```bash
-# Gerar/regenerar o swagger.json
+sail artisan route:list --path=api
+```
+
+Deve mostrar todas as rotas da API com seus metodos HTTP e controllers.
+
+```bash
+# Commitar
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add API routes with Sanctum middleware"
+```
+
+---
+
+## Passo 11 — Gerar a documentacao Swagger
+
+```bash
 sail artisan l5-swagger:generate
-
-# Acessar a documentacao interativa
-# http://localhost/api/documentation
 ```
 
-### Fluxo de uso da API
+**Verificacao:** acesse a documentacao interativa no navegador:
 
 ```
-1. POST /api/auth/token        -> Obter Bearer token
-2. POST /api/projects           -> Criar projeto com codigo
-3. POST /api/projects/{id}/reviews -> Iniciar review com IA
-4. GET  /api/reviews/{id}       -> Poll status (1=Pending, 2=Completed)
-5. GET  /api/projects/{id}/improvements -> Ver Kanban de melhorias
-6. PATCH /api/improvements/{id} -> Mover cards no Kanban
+http://localhost/api/documentation
 ```
 
-### Exemplo curl
+Voce deve ver a interface do Swagger UI com todos os endpoints organizados por tags: Auth, Projects, Code Reviews e Improvements.
+
+---
+
+## Passo 12 — Testar a API com curl
+
+Vamos testar o fluxo completo via terminal. Certifique-se de ter um usuario no banco (se nao tiver, rode `sail artisan migrate:fresh --seed` e crie um usuario pelo Tinker ou pela interface).
+
+### 12.1 — Obter token de autenticacao
 
 ```bash
-# 1. Obter token
 TOKEN=$(curl -s -X POST http://localhost/api/auth/token \
   -H "Content-Type: application/json" \
   -d '{"email":"user@test.com","password":"password","device_name":"curl"}' \
   | jq -r '.token')
 
-# 2. Criar projeto
+echo $TOKEN
+```
+
+Deve retornar um token longo. Se retornar `null`, verifique se o usuario existe e a senha esta correta.
+
+### 12.2 — Criar um projeto
+
+```bash
 PROJECT=$(curl -s -X POST http://localhost/api/projects \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -585,7 +783,12 @@ PROJECT=$(curl -s -X POST http://localhost/api/projects \
     "code_snippet": "class PaymentService {\n    public function charge($user, $amount) {\n        DB::select(\"SELECT * FROM users WHERE id = \" . $user->id);\n        return true;\n    }\n}"
   }' | jq -r '.id')
 
-# 3. Iniciar review
+echo "Projeto criado com ID: $PROJECT"
+```
+
+### 12.3 — Iniciar code review
+
+```bash
 curl -s -X POST "http://localhost/api/projects/$PROJECT/reviews" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -596,45 +799,80 @@ curl -s -X POST "http://localhost/api/projects/$PROJECT/reviews" \
     "performance_improvement": "Query dentro do metodo de pagamento",
     "security_strength": "Nenhuma",
     "security_improvement": "SQL Injection via concatenacao"
-  }'
+  }' | jq .
+```
 
-# 4. Verificar status (poll ate completed)
+Deve retornar status 201 com o review e seus 6 findings.
+
+### 12.4 — Verificar status do review (poll)
+
+```bash
 curl -s "http://localhost/api/reviews/1" \
   -H "Authorization: Bearer $TOKEN" | jq '.status.name'
 ```
 
----
+Deve retornar `"Pending"` (muda para `"Completed"` quando o Agent termina).
 
-## Policy para autorizacao
+### 12.5 — Listar projetos
 
-```php
-// app/Policies/ProjectPolicy.php
+```bash
+curl -s "http://localhost/api/projects" \
+  -H "Authorization: Bearer $TOKEN" | jq '.data[].name'
+```
 
-namespace App\Policies;
+### 12.6 — Listar melhorias de um projeto
 
-use App\Models\Project;
-use App\Models\User;
+```bash
+curl -s "http://localhost/api/projects/$PROJECT/improvements" \
+  -H "Authorization: Bearer $TOKEN" | jq '.[].title'
+```
 
-class ProjectPolicy
-{
-    public function view(User $user, Project $project): bool
-    {
-        return $user->id === $project->user_id;
-    }
+### Fluxo completo resumido
 
-    public function update(User $user, Project $project): bool
-    {
-        return $user->id === $project->user_id;
-    }
-
-    public function delete(User $user, Project $project): bool
-    {
-        return $user->id === $project->user_id;
-    }
-}
+```
+1. POST /api/auth/token             -> Obter Bearer token
+2. POST /api/projects               -> Criar projeto com codigo
+3. POST /api/projects/{id}/reviews  -> Iniciar review com IA
+4. GET  /api/reviews/{id}           -> Poll status (1=Pending, 2=Completed)
+5. GET  /api/projects/{id}/improvements -> Ver Kanban de melhorias
+6. PATCH /api/improvements/{id}     -> Mover cards no Kanban
 ```
 
 ---
+
+## Passo 13 — Commitar e criar PR
+
+```bash
+cd ~/laravel_ai
+git add .
+git commit -m "feat: generate Swagger docs and add curl test examples"
+
+# Push da branch
+git push -u origin feat/cap13-api
+
+# Criar Pull Request
+gh pr create --title "feat: API REST e Swagger" --body "Capitulo 13 - API REST com Sanctum, controllers OpenAPI, ProjectPolicy, rotas e documentacao Swagger"
+
+# Apos merge do PR no GitHub:
+git checkout main
+git pull
+```
+
+---
+
+## Resumo do que foi criado
+
+| Arquivo | O que faz |
+|---------|-----------|
+| `config/l5-swagger.php` | Configuracao do Swagger (rota, info, security) |
+| `app/Http/Controllers/Controller.php` | Annotation base OA\Info e OA\SecurityScheme |
+| `app/Http/Controllers/Api/AuthController.php` | Endpoint POST /api/auth/token (Sanctum) |
+| `app/Http/Controllers/Api/ProjectController.php` | CRUD de projetos (index, store, show, destroy) |
+| `app/Http/Controllers/Api/CodeReviewController.php` | Criar review (store) e consultar status (show) |
+| `app/Http/Controllers/Api/ImprovementController.php` | Listar melhorias (index) e mover no Kanban (update) |
+| `app/Http/Resources/Schemas/ProjectSchema.php` | Schema OpenAPI do model Project |
+| `app/Policies/ProjectPolicy.php` | Autorizacao: view, update, delete por dono |
+| `routes/api.php` | Rotas da API com middleware auth:sanctum |
 
 ## Proximo capitulo
 

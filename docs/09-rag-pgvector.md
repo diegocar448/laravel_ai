@@ -2,6 +2,26 @@
 
 > **Este capitulo cobre os pilares: RAG (3) e Vector Databases (6)**
 
+Neste capitulo vamos implementar o **pipeline RAG completo**: instalar o pacote pgvector para Laravel, criar a Tool `SearchDocsKnowledgeBase` que os Agents usam para buscar documentacao relevante, e o comando Artisan `docs:import` para popular a knowledge base com embeddings vetoriais.
+
+## Antes de comecar
+
+> **Lembrete:** Se `sail` retornar "command not found", crie o alias (feito no Capitulo 2):
+> ```bash
+> alias sail='./vendor/bin/sail'
+> ```
+
+Crie a branch para este capitulo:
+
+```bash
+cd ~/laravel_ai
+git checkout main && git pull
+git checkout -b feat/cap09-rag
+cd codereview-ai
+```
+
+---
+
 ## O que e RAG?
 
 **RAG (Retrieval-Augmented Generation)** e uma tecnica que combina busca de informacoes com geracao de texto por IA. Em vez de depender apenas do conhecimento interno do LLM, o sistema busca dados relevantes em uma base propria e injeta no contexto.
@@ -16,7 +36,7 @@ Com RAG:
  injection attacks no trecho da linha 42"  <- especifico com referencias
 ```
 
-## Como funciona no projeto
+### Fluxo RAG no projeto
 
 ```
 1. Agent precisa recomendar melhorias
@@ -34,55 +54,9 @@ Com RAG:
 7. Agent gera recomendacao com referencias concretas
 ```
 
-## Embeddings com Laravel AI SDK
-
-### O que sao embeddings?
-
-Um **embedding** e uma representacao numerica (vetor) de um texto. Textos com significados similares ficam proximos no espaco vetorial.
-
-```
-"SQL injection prevention"  -> [0.12, -0.34, 0.56, ..., 0.78]  (768 dimensoes)
-"input sanitization"        -> [0.11, -0.33, 0.55, ..., 0.77]  <- similar!
-"receita de bolo"           -> [-0.89, 0.45, -0.12, ..., 0.23] <- distante!
-```
-
-### Gerando embeddings com Ai::embeddings()
-
-O Laravel AI SDK oferece a facade `Ai::embeddings()` para gerar vetores:
-
-```php
-use Laravel\Ai\Facades\Ai;
-use Laravel\Ai\Enums\Lab;
-
-// Gerar embedding de um texto
-$result = Ai::embeddings()
-    ->provider(Lab::Gemini)
-    ->model('text-embedding-004')
-    ->embed('PSR-12: Methods must declare visibility...');
-
-// Acessar o vetor (array de 768 floats)
-$vector = $result[0]->embedding;
-echo count($vector); // 768
-```
-
-### Cache de embeddings
-
-Para queries repetidas, o SDK suporta cache nativo:
-
-```php
-$result = Ai::embeddings()
-    ->provider(Lab::Gemini)
-    ->model('text-embedding-004')
-    ->embed('SQL injection prevention', cache: true);
-
-// Chamadas subsequentes usam cache
-```
-
 ---
 
-## pgvector — vetores no PostgreSQL
-
-### Instalacao do pgvector
+## Passo 1 — Instalar o pacote pgvector para Laravel
 
 O `compose.yaml` ja usa a imagem com pgvector (Capitulo 2):
 
@@ -91,156 +65,299 @@ pgsql:
     image: 'pgvector/pgvector:pg18'  # PostgreSQL 18 + extensao pgvector
 ```
 
-No PHP, o pacote `pgvector/pgvector` adiciona suporte ao Laravel:
+A migration da tabela `doc_embeddings` e o Model `DocEmbedding` ja foram criados nos Capitulos 3 e 4. Agora precisamos do pacote PHP que adiciona suporte ao pgvector no Laravel:
 
 ```bash
 sail composer require pgvector/pgvector
 ```
 
-### Migration com tipo vector
+**O que o pacote faz:**
+- Adiciona o tipo `vector` nas migrations (`$table->vector('embedding', 768)`)
+- Fornece o trait `HasNeighbors` com o scope `nearestNeighbors()`
+- Fornece o cast `Vector::class` para converter arrays PHP em vetores PostgreSQL
+- Suporta operadores de distancia: Cosine, L2, InnerProduct
 
-```php
-// database/migrations/create_doc_embeddings_table.php
-
-return new class extends Migration
-{
-    public function up(): void
-    {
-        Schema::create('doc_embeddings', function (Blueprint $table) {
-            $table->id();
-            $table->string('source');       // PSR-12, OWASP, Laravel Docs
-            $table->string('title');
-            $table->text('content');
-            $table->vector('embedding', 768);  // <- tipo pgvector!
-            $table->string('category');     // architecture, performance, security
-            $table->timestamps();
-        });
-    }
-};
+```bash
+# Commitar
+cd ~/laravel_ai
+git add .
+git commit -m "feat: install pgvector/pgvector package"
 ```
-
-### Model com HasNeighbors
-
-```php
-// app/Models/DocEmbedding.php
-
-use Pgvector\Laravel\HasNeighbors;
-use Pgvector\Laravel\Vector;
-
-class DocEmbedding extends Model
-{
-    use HasNeighbors;
-
-    protected $fillable = ['source', 'title', 'content', 'embedding', 'category'];
-
-    protected $casts = [
-        'embedding' => Vector::class,
-    ];
-}
-```
-
-O trait `HasNeighbors` adiciona o scope `nearestNeighbors()` que gera a query SQL com operadores de distancia do pgvector.
 
 ---
 
-## Populando a knowledge base
+## Passo 2 — Criar os arquivos de documentacao para importar
 
-### Fontes de conteudo
+Vamos criar um diretorio com documentacoes que serao importadas como embeddings. Cada arquivo JSON contem trechos de documentacao organizados por fonte.
 
-| Fonte | Categoria | Exemplos |
-|-------|-----------|----------|
-| **PSRs** | architecture | PSR-1, PSR-4, PSR-12 (coding style) |
-| **OWASP Top 10** | security | A01:Broken Access, A03:Injection, A07:XSS |
-| **Laravel Docs** | architecture | Service Container, Eloquent, Middleware |
-| **Clean Code** | architecture | SOLID, DRY, KISS, naming conventions |
-| **Performance** | performance | N+1, caching, indexing, query optimization |
-| **Design Patterns** | architecture | Repository, Strategy, Observer, Factory |
-
-### Gerando embeddings com Ai::embeddings()
-
-```php
-use Laravel\Ai\Facades\Ai;
-use Laravel\Ai\Enums\Lab;
-use App\Models\DocEmbedding;
-
-// Gerar embedding de um trecho de documentacao
-$result = Ai::embeddings()
-    ->provider(Lab::Gemini)
-    ->model('text-embedding-004')
-    ->embed('PSR-12: Extended Coding Style Guide. Methods must declare
-        visibility. Opening braces for methods MUST go on the next line...');
-
-// Salvar no banco
-DocEmbedding::create([
-    'source' => 'PSR-12',
-    'title' => 'Extended Coding Style Guide - Methods',
-    'content' => 'Methods must declare visibility. Opening braces...',
-    'embedding' => $result[0]->embedding,
-    'category' => 'architecture',
-]);
+```bash
+mkdir -p docs-knowledge-base
 ```
 
-### Comando Artisan para importar docs
+Crie `docs-knowledge-base/psr-12.json`:
+
+```json
+[
+    {
+        "title": "PSR-12 - Methods Visibility",
+        "content": "PSR-12: Extended Coding Style Guide. Methods must declare visibility. All methods must have their visibility declared. Abstract and final declarations must precede the visibility declaration. Static declarations must come after the visibility declaration.",
+        "category": "architecture"
+    },
+    {
+        "title": "PSR-12 - Opening Braces",
+        "content": "PSR-12: Opening braces for classes and methods MUST go on the next line, and closing braces MUST go on the next line after the body. Opening braces for control structures MUST go on the same line, and closing braces MUST go on the next line after the body.",
+        "category": "architecture"
+    },
+    {
+        "title": "PSR-4 - Autoloading Standard",
+        "content": "PSR-4: Autoloading Standard. A fully qualified class name has the form \\Namespace\\ClassName. Each namespace must have a base directory. The subdirectory names must match the case of the sub-namespace names. Each class file must end with .php extension.",
+        "category": "architecture"
+    }
+]
+```
+
+Crie `docs-knowledge-base/owasp.json`:
+
+```json
+[
+    {
+        "title": "OWASP A03:2021 - Injection",
+        "content": "OWASP A03:2021 Injection. An application is vulnerable when user-supplied data is not validated, filtered, or sanitized. SQL injection occurs when untrusted data is sent to an interpreter as part of a command or query. Prevention: Use parameterized queries, stored procedures, input validation, and escaping.",
+        "category": "security"
+    },
+    {
+        "title": "OWASP A01:2021 - Broken Access Control",
+        "content": "OWASP A01:2021 Broken Access Control. Access control enforces policy such that users cannot act outside of their intended permissions. Failures lead to unauthorized information disclosure, modification, or destruction. Prevention: Deny by default, implement access control mechanisms, enforce record ownership.",
+        "category": "security"
+    },
+    {
+        "title": "OWASP A07:2021 - Cross-Site Scripting (XSS)",
+        "content": "OWASP A07:2021 XSS. Cross-site scripting flaws occur when an application includes untrusted data in a new web page without proper validation or escaping. XSS allows attackers to execute scripts in the victim's browser. Prevention: Escape output, use Content Security Policy, validate input on server side.",
+        "category": "security"
+    }
+]
+```
+
+Crie `docs-knowledge-base/laravel-best-practices.json`:
+
+```json
+[
+    {
+        "title": "Laravel - Eloquent N+1 Problem",
+        "content": "The N+1 query problem occurs when you load a collection and then access a relationship on each item without eager loading. Use with() or load() to eager load relationships. Example: User::with('posts')->get() instead of User::all() then accessing $user->posts in a loop.",
+        "category": "performance"
+    },
+    {
+        "title": "Laravel - Service Container and Dependency Injection",
+        "content": "Laravel's service container is a powerful tool for managing class dependencies and performing dependency injection. Instead of creating instances manually with new, bind interfaces to implementations in a ServiceProvider. This makes code testable and follows the Dependency Inversion Principle.",
+        "category": "architecture"
+    },
+    {
+        "title": "Laravel - Query Optimization with Database Indexing",
+        "content": "Always add database indexes for columns used in WHERE, ORDER BY, and JOIN clauses. Use composite indexes for queries filtering on multiple columns. Monitor slow queries with DB::listen() or Laravel Telescope. Use EXPLAIN to analyze query execution plans.",
+        "category": "performance"
+    }
+]
+```
+
+```bash
+# Commitar
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add knowledge base JSON docs for RAG import"
+```
+
+---
+
+## Passo 3 — Criar o comando Artisan ImportDocs
+
+Gere o scaffold do comando:
+
+```bash
+sail artisan make:command ImportDocs
+```
+
+Edite `app/Console/Commands/ImportDocs.php`:
 
 ```php
-// app/Console/Commands/ImportDocsCommand.php
+<?php
 
-class ImportDocsCommand extends Command
+namespace App\Console\Commands;
+
+use App\Models\DocEmbedding;
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+use Laravel\Ai\Enums\Lab;
+use Laravel\Ai\Facades\Ai;
+
+class ImportDocs extends Command
 {
-    protected $signature = 'docs:import {source}';
+    protected $signature = 'docs:import {source : Nome da fonte (ex: psr-12, owasp, laravel-best-practices)}';
 
-    public function handle(): void
+    protected $description = 'Importa documentacoes JSON para a knowledge base com embeddings vetoriais';
+
+    public function handle(): int
     {
         $source = $this->argument('source');
-        $docs = $this->loadDocs($source);
+        $filePath = base_path("docs-knowledge-base/{$source}.json");
 
+        if (! File::exists($filePath)) {
+            $this->error("Arquivo nao encontrado: {$filePath}");
+            $this->info('Arquivos disponiveis:');
+
+            collect(File::files(base_path('docs-knowledge-base')))
+                ->each(fn ($file) => $this->line("  - {$file->getFilenameWithoutExtension()}"));
+
+            return self::FAILURE;
+        }
+
+        $docs = json_decode(File::get($filePath), true);
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            $this->error('Erro ao parsear JSON: ' . json_last_error_msg());
+            return self::FAILURE;
+        }
+
+        $this->info("Importando {$source}: " . count($docs) . " documentos");
         $bar = $this->output->createProgressBar(count($docs));
+        $bar->start();
+
+        $imported = 0;
 
         foreach ($docs as $doc) {
+            // Verificar se ja existe para evitar duplicatas
+            $exists = DocEmbedding::where('source', $source)
+                ->where('title', $doc['title'])
+                ->exists();
+
+            if ($exists) {
+                $bar->advance();
+                continue;
+            }
+
+            // Gerar embedding via Ai::embeddings()
             $result = Ai::embeddings()
                 ->provider(Lab::Gemini)
                 ->model('text-embedding-004')
                 ->embed($doc['content']);
 
+            // Salvar no banco com o vetor
             DocEmbedding::create([
-                'source' => $source,
-                'title' => $doc['title'],
-                'content' => $doc['content'],
+                'source'    => $source,
+                'title'     => $doc['title'],
+                'content'   => $doc['content'],
                 'embedding' => $result[0]->embedding,
-                'category' => $doc['category'],
+                'category'  => $doc['category'],
             ]);
 
+            $imported++;
             $bar->advance();
         }
 
         $bar->finish();
-        $this->info("\nImportadas " . count($docs) . " documentacoes de {$source}");
+        $this->newLine();
+        $this->info("Importados {$imported} documentos de {$source} com sucesso!");
+
+        return self::SUCCESS;
     }
 }
 ```
 
+**O que o comando faz:**
+1. Recebe o nome da fonte (ex: `psr-12`) como argumento
+2. Le o arquivo JSON correspondente em `docs-knowledge-base/`
+3. Para cada documento, gera um embedding de 768 dimensoes via `Ai::embeddings()`
+4. Salva o documento com o vetor na tabela `doc_embeddings`
+5. Verifica duplicatas pelo par `source` + `title`
+
 ```bash
-sail artisan docs:import PSR-12
-sail artisan docs:import OWASP
-sail artisan docs:import laravel-docs
+# Commitar
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add docs:import artisan command for RAG knowledge base"
 ```
 
 ---
 
-## Busca semantica — SearchDocsKnowledgeBase Tool
+## Passo 4 — Importar os documentos
 
-No Laravel AI SDK, a busca RAG e implementada como uma **Tool** que os Agents podem chamar:
+Certifique-se de que o banco esta rodando e as migrations foram executadas:
+
+```bash
+sail artisan migrate:fresh --seed
+```
+
+Agora importe cada fonte:
+
+```bash
+sail artisan docs:import psr-12
+sail artisan docs:import owasp
+sail artisan docs:import laravel-best-practices
+```
+
+Cada comando deve mostrar uma barra de progresso e a mensagem de sucesso:
+
+```
+Importando psr-12: 3 documentos
+ 3/3 [============================] 100%
+Importados 3 documentos de psr-12 com sucesso!
+```
+
+### Verificar no Tinker
+
+```bash
+sail artisan tinker
+```
 
 ```php
-// app/Ai/Tools/SearchDocsKnowledgeBase.php
+// Total de documentos importados
+App\Models\DocEmbedding::count();
+// => 9
+
+// Verificar fontes
+App\Models\DocEmbedding::pluck('source')->unique()->values();
+// => ["psr-12", "owasp", "laravel-best-practices"]
+
+// Verificar que os vetores foram gerados
+$doc = App\Models\DocEmbedding::first();
+count($doc->embedding->toArray());
+// => 768
+
+// Sair
+exit
+```
+
+> Se todos os comandos retornaram os valores esperados, a knowledge base esta pronta.
+
+```bash
+# Commitar
+cd ~/laravel_ai
+git add .
+git commit -m "feat: import knowledge base docs with embeddings"
+```
+
+---
+
+## Passo 5 — Criar a Tool SearchDocsKnowledgeBase
+
+No Laravel AI SDK, a busca RAG e implementada como uma **Tool** que os Agents podem chamar. Gere o scaffold:
+
+```bash
+sail artisan make:tool SearchDocsKnowledgeBase
+```
+
+Edite `app/Ai/Tools/SearchDocsKnowledgeBase.php`:
+
+```php
+<?php
 
 namespace App\Ai\Tools;
 
 use App\Models\DocEmbedding;
 use Laravel\Ai\Contracts\Tool;
 use Laravel\Ai\Contracts\ToolSchema;
-use Laravel\Ai\Facades\Ai;
 use Laravel\Ai\Enums\Lab;
+use Laravel\Ai\Facades\Ai;
 use Pgvector\Laravel\Distance;
 
 class SearchDocsKnowledgeBase implements Tool
@@ -258,7 +375,6 @@ class SearchDocsKnowledgeBase implements Tool
 
     public function schema(): ToolSchema
     {
-        // Schema dos parametros que a IA pode passar
         return ToolSchema::make()
             ->string('query', 'Search query describing what documentation to find')
             ->string('category', 'Filter by category: architecture, performance, or security');
@@ -266,11 +382,11 @@ class SearchDocsKnowledgeBase implements Tool
 
     public function execute(array $parameters): string
     {
-        // 1. Converter a query em vetor via Ai::embeddings()
+        // 1. Converter a query em vetor via Ai::embeddings() com cache
         $result = Ai::embeddings()
             ->provider(Lab::Gemini)
             ->model('text-embedding-004')
-            ->embed($parameters['query']);
+            ->embed($parameters['query'], cache: true);
 
         $queryVector = $result[0]->embedding;
 
@@ -284,7 +400,11 @@ class SearchDocsKnowledgeBase implements Tool
 
         $docs = $docsQuery->take(5)->get();
 
-        // 3. Formatar o resultado como contexto
+        if ($docs->isEmpty()) {
+            return 'Nenhuma documentacao encontrada para a query informada.';
+        }
+
+        // 3. Formatar o resultado como contexto para o Agent
         return $docs->map(function ($doc) {
             return "[{$doc->source}] {$doc->title}\n{$doc->content}";
         })->implode("\n\n---\n\n");
@@ -292,7 +412,111 @@ class SearchDocsKnowledgeBase implements Tool
 }
 ```
 
-### Como a Tool e usada pelos Agents
+**Como a Tool funciona:**
+
+1. **`name()`** — identificador usado pelo Agent no `tool_call`
+2. **`description()`** — o LLM le essa descricao para decidir quando chamar a Tool
+3. **`schema()`** — define os parametros que a IA pode passar (query + category)
+4. **`execute()`** — logica de busca: embedding da query -> busca pgvector -> retorna contexto
+
+**O operador `<=>` (cosine distance) do pgvector:**
+
+```sql
+-- Query SQL gerada pelo nearestNeighbors() (simplificada)
+SELECT *,
+       embedding <=> '[0.12, -0.34, ...]'::vector AS distance
+FROM doc_embeddings
+WHERE category = 'security'
+ORDER BY embedding <=> '[0.12, -0.34, ...]'::vector
+LIMIT 5;
+```
+
+- `<=>` — operador de distancia cosseno do pgvector
+- Quanto menor a distancia, mais similar o conteudo
+- O filtro `WHERE category` permite buscar apenas docs do pilar relevante
+
+**Cache de embeddings:**
+
+O parametro `cache: true` no `Ai::embeddings()` evita chamadas repetidas a API para a mesma query. Queries frequentes como "SQL injection" ou "N+1 query" serao resolvidas instantaneamente apos a primeira chamada.
+
+```bash
+# Commitar
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add SearchDocsKnowledgeBase RAG tool with pgvector"
+```
+
+---
+
+## Passo 6 — Verificar a busca semantica no Tinker
+
+Vamos testar o pipeline RAG completo: query -> embedding -> busca pgvector -> resultado.
+
+```bash
+sail artisan tinker
+```
+
+```php
+use App\Models\DocEmbedding;
+use Laravel\Ai\Facades\Ai;
+use Laravel\Ai\Enums\Lab;
+use Pgvector\Laravel\Distance;
+
+// 1. Gerar embedding de uma query de teste
+$result = Ai::embeddings()
+    ->provider(Lab::Gemini)
+    ->model('text-embedding-004')
+    ->embed('How to prevent SQL injection in PHP');
+
+$queryVector = $result[0]->embedding;
+echo count($queryVector->toArray()); // 768
+
+// 2. Buscar documentos similares
+$docs = DocEmbedding::query()
+    ->nearestNeighbors('embedding', $queryVector, Distance::Cosine)
+    ->take(3)
+    ->get();
+
+// 3. Verificar resultados — OWASP A03 (Injection) deve aparecer primeiro
+$docs->each(fn ($doc) => dump("[{$doc->source}] {$doc->title}"));
+
+// Esperado (ordem pode variar):
+// "[owasp] OWASP A03:2021 - Injection"
+// "[owasp] OWASP A07:2021 - Cross-Site Scripting (XSS)"
+// "[laravel-best-practices] Laravel - Service Container..."
+
+// 4. Testar filtro por categoria
+$securityDocs = DocEmbedding::query()
+    ->nearestNeighbors('embedding', $queryVector, Distance::Cosine)
+    ->where('category', 'security')
+    ->take(3)
+    ->get();
+
+$securityDocs->each(fn ($doc) => dump("[{$doc->source}] {$doc->title}"));
+
+// Esperado: apenas documentos de security
+
+// 5. Testar a Tool diretamente
+$tool = new \App\Ai\Tools\SearchDocsKnowledgeBase;
+$resultado = $tool->execute([
+    'query' => 'coding style method visibility',
+    'category' => 'architecture',
+]);
+
+echo $resultado;
+// Deve retornar trechos de PSR-12 sobre visibility
+
+// Sair
+exit
+```
+
+> Se a busca retornou documentos relevantes para a query, o pipeline RAG esta funcionando corretamente.
+
+---
+
+## Passo 7 — Como a Tool e usada pelos Agents (preview)
+
+No Capitulo 10, os Agents vao usar a Tool `SearchDocsKnowledgeBase` para buscar documentacao antes de gerar recomendacoes:
 
 ```php
 // No Agent (Capitulo 10)
@@ -313,46 +537,11 @@ class SecurityAnalyst implements Agent, HasTools
 // 2. Agent decide: "Preciso buscar docs sobre SQL Injection"
 // 3. Agent faz tool_call: search_docs_knowledge_base(query: "SQL injection", category: "security")
 // 4. Tool executa: Ai::embeddings() + pgvector query
-// 5. Retorna: "[OWASP A03] Injection... [PSR-12] Input validation..."
+// 5. Retorna: "[OWASP A03] Injection..." "[PSR-12] Input validation..."
 // 6. Agent usa os docs para gerar resposta com referencias
 ```
 
----
-
-## Como funciona a busca por distancia
-
-```sql
--- Query SQL gerada pelo pgvector (simplificada)
-SELECT *,
-       embedding <=> '[0.12, -0.34, ...]'::vector AS distance
-FROM doc_embeddings
-WHERE category = 'security'
-ORDER BY embedding <=> '[0.12, -0.34, ...]'::vector
-LIMIT 5;
-```
-
-- `<=>` — operador de distancia cosseno do pgvector
-- Quanto menor a distancia, mais similar o conteudo
-- O filtro `WHERE category` permite buscar apenas docs do pilar relevante
-
-### Tipos de distancia
-
-```php
-use Pgvector\Laravel\Distance;
-
-// Cosseno — bom para similaridade semantica (recomendado)
-->nearestNeighbors('embedding', $vector, Distance::Cosine)
-
-// L2 (Euclidiana)
-->nearestNeighbors('embedding', $vector, Distance::L2)
-
-// Produto interno
-->nearestNeighbors('embedding', $vector, Distance::InnerProduct)
-```
-
----
-
-## Fluxo RAG completo
+**Fluxo completo visualizado:**
 
 ```
 +---------------------+
@@ -392,47 +581,43 @@ use Pgvector\Laravel\Distance;
 
 ---
 
-## Otimizacoes de performance
+## Passo 8 — Commitar e criar PR
 
-### Indice HNSW
+```bash
+cd ~/laravel_ai
+git add .
+git commit -m "feat: complete RAG pipeline with pgvector and semantic search"
 
-Para bases com muitos documentos, crie um indice HNSW:
+# Push da branch
+git push -u origin feat/cap09-rag
 
-```php
-// Em uma migration
-DB::statement(
-    'CREATE INDEX doc_embeddings_embedding_idx
-     ON doc_embeddings
-     USING hnsw (embedding vector_cosine_ops)
-     WITH (m = 16, ef_construction = 64)'
-);
+# Criar Pull Request
+gh pr create --title "feat: RAG com pgvector e busca semantica" --body "Capitulo 09 - Knowledge base, docs:import command, SearchDocsKnowledgeBase Tool, embeddings com cache e busca vetorial via pgvector"
+
+# Apos merge do PR no GitHub:
+git checkout main
+git pull
 ```
 
-### Cache de embeddings
+---
 
-Para queries repetidas, use o cache nativo do SDK:
+## Resumo do que foi criado
 
-```php
-$result = Ai::embeddings()
-    ->provider(Lab::Gemini)
-    ->model('text-embedding-004')
-    ->embed($query, cache: true);
-```
+| Arquivo | O que faz |
+|---------|-----------|
+| `docs-knowledge-base/psr-12.json` | Trechos de PSR-12 para importar como embeddings |
+| `docs-knowledge-base/owasp.json` | Trechos de OWASP Top 10 para importar como embeddings |
+| `docs-knowledge-base/laravel-best-practices.json` | Boas praticas Laravel para importar como embeddings |
+| `app/Console/Commands/ImportDocs.php` | Comando `docs:import` que gera embeddings e salva no banco |
+| `app/Ai/Tools/SearchDocsKnowledgeBase.php` | Tool RAG: busca semantica via pgvector com cache |
 
-Ou cache manual com Redis:
+**Dependencias de capitulos anteriores (ja criados):**
 
-```php
-$cacheKey = 'embedding:' . md5($query);
-
-$queryVector = Cache::remember($cacheKey, 3600, function () use ($query) {
-    $result = Ai::embeddings()
-        ->provider(Lab::Gemini)
-        ->model('text-embedding-004')
-        ->embed($query);
-
-    return $result[0]->embedding;
-});
-```
+| Arquivo | Capitulo | O que faz |
+|---------|----------|-----------|
+| `database/migrations/create_doc_embeddings_table.php` | 3 | Tabela com coluna `vector(768)` |
+| `database/migrations/add_hnsw_index_to_doc_embeddings.php` | 3 | Indice HNSW para busca rapida |
+| `app/Models/DocEmbedding.php` | 4 | Model com `HasNeighbors` e `Vector` cast |
 
 ## Proximo capitulo
 
