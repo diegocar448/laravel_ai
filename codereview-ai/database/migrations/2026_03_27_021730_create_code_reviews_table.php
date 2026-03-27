@@ -6,23 +6,19 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
-        Schema::create('review_statuses', function (Blueprint $table) {
+        Schema::create('code_reviews', function (Blueprint $table) {
             $table->id();
-            $table->string('name'); // Pending, Completed, Failed
+            $table->foreignId('project_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('review_status_id')->nullable()->default(1)->constrained();
+            $table->text('summary')->nullable();
             $table->timestamps();
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
-        Schema::dropIfExists('review_statuses');
+        Schema::dropIfExists('code_reviews');
     }
 };

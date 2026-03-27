@@ -1,8 +1,30 @@
 # Capitulo 14 — Testes Automatizados
 
-> **Testes desde o inicio:** Este capitulo acompanha cada capitulo do tutorial. Conforme voce constroi o projeto, escreva os testes correspondentes.
+> **Este capitulo cobre todos os tipos de testes do projeto:** unitarios, integracao, funcionais, E2E, aceitacao, performance, smoke e CI/CD com GitHub Actions.
+
+Neste capitulo vamos criar **todos os testes automatizados** do projeto. Ao final, voce tera cobertura completa desde testes unitarios rapidos ate smoke tests pos-deploy, com um pipeline CI/CD no GitHub Actions.
+
+## Antes de comecar
+
+> **Lembrete:** Se `sail` retornar "command not found", crie o alias (feito no Capitulo 2):
+> ```bash
+> alias sail='./vendor/bin/sail'
+> ```
+
+Crie a branch para este capitulo:
+
+```bash
+cd ~/laravel_ai
+git checkout main && git pull
+git checkout -b feat/cap14-tests
+cd codereview-ai
+```
+
+---
 
 ## Piramide de Testes
+
+Antes de criar os testes, entenda a estrategia que vamos seguir:
 
 ```
                     /\
@@ -31,19 +53,19 @@
 
 ---
 
-## Setup do Pest (Capitulo 2)
+## Passo 1 — Instalar e configurar o Pest
 
-### Instalacao
+O Pest e o framework de testes que usaremos no projeto. Instale-o:
 
 ```bash
 sail composer require --dev pestphp/pest
 sail artisan pest:install
 ```
 
-### Configuracao
+Edite `tests/Pest.php` com a configuracao base:
 
 ```php
-// tests/Pest.php
+<?php
 
 uses(
     Tests\TestCase::class,
@@ -54,6 +76,8 @@ uses(Tests\TestCase::class)->in('Unit');
 ```
 
 ### Estrutura de pastas
+
+O projeto tera esta estrutura de testes:
 
 ```
 tests/
@@ -100,36 +124,48 @@ tests/
     +-- SwaggerTest.php
 ```
 
-### Rodar testes
+Crie os diretorios:
 
 ```bash
-# Todos os testes
+mkdir -p tests/Unit/Models tests/Unit/Enums tests/Unit/Services
+mkdir -p tests/Feature/Auth tests/Feature/Api tests/Feature/Livewire
+mkdir -p tests/Feature/Agents tests/Feature/Jobs tests/Feature/Rag
+mkdir -p tests/Feature/Models tests/Feature/Database tests/Feature/Acceptance
+mkdir -p tests/E2E tests/Performance tests/Smoke
+```
+
+### Verificar que o Pest funciona
+
+```bash
 sail test
+```
 
-# Apenas unitarios
-sail test --testsuite=Unit
+Deve rodar os testes padrao do Laravel sem erros.
 
-# Apenas feature
-sail test --testsuite=Feature
-
-# Filtrar por nome
-sail test --filter="ProjectTest"
-
-# Com cobertura
-sail test --coverage --min=80
-
-# Modo watch (reexecuta ao salvar)
-sail test --watch
+```bash
+cd ~/laravel_ai
+git add .
+git commit -m "feat: install pest and create test directory structure"
 ```
 
 ---
 
-## Factories (Capitulo 3-4)
+## Passo 2 — Criar as Factories
 
-Crie factories para todos os models:
+As factories geram dados falsos para os testes. Precisamos de uma factory para cada model.
+
+### 2.1 — Ajustar UserFactory
+
+O Laravel ja criou `database/factories/UserFactory.php`. Edite-o:
+
+```bash
+sail artisan make:factory UserFactory --model=User
+```
+
+> Se ja existir, apenas edite o arquivo. Edite `database/factories/UserFactory.php`:
 
 ```php
-// database/factories/UserFactory.php (ja existe, ajustar)
+<?php
 
 namespace Database\Factories;
 
@@ -164,13 +200,22 @@ class UserFactory extends Factory
 }
 ```
 
+### 2.2 — ProjectFactory
+
+```bash
+sail artisan make:factory ProjectFactory --model=Project
+```
+
+Edite `database/factories/ProjectFactory.php`:
+
 ```php
-// database/factories/ProjectFactory.php
+<?php
 
 namespace Database\Factories;
 
 use App\Enums\ProjectStatusEnum;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Factories\Factory;
 
 class ProjectFactory extends Factory
 {
@@ -193,13 +238,22 @@ class ProjectFactory extends Factory
 }
 ```
 
+### 2.3 — CodeReviewFactory
+
+```bash
+sail artisan make:factory CodeReviewFactory --model=CodeReview
+```
+
+Edite `database/factories/CodeReviewFactory.php`:
+
 ```php
-// database/factories/CodeReviewFactory.php
+<?php
 
 namespace Database\Factories;
 
 use App\Enums\ReviewStatusEnum;
 use App\Models\Project;
+use Illuminate\Database\Eloquent\Factories\Factory;
 
 class CodeReviewFactory extends Factory
 {
@@ -230,12 +284,21 @@ class CodeReviewFactory extends Factory
 }
 ```
 
+### 2.4 — ReviewFindingFactory
+
+```bash
+sail artisan make:factory ReviewFindingFactory --model=ReviewFinding
+```
+
+Edite `database/factories/ReviewFindingFactory.php`:
+
 ```php
-// database/factories/ReviewFindingFactory.php
+<?php
 
 namespace Database\Factories;
 
 use App\Models\CodeReview;
+use Illuminate\Database\Eloquent\Factories\Factory;
 
 class ReviewFindingFactory extends Factory
 {
@@ -264,12 +327,21 @@ class ReviewFindingFactory extends Factory
 }
 ```
 
+### 2.5 — ImprovementFactory
+
+```bash
+sail artisan make:factory ImprovementFactory --model=Improvement
+```
+
+Edite `database/factories/ImprovementFactory.php`:
+
 ```php
-// database/factories/ImprovementFactory.php
+<?php
 
 namespace Database\Factories;
 
 use App\Models\Project;
+use Illuminate\Database\Eloquent\Factories\Factory;
 
 class ImprovementFactory extends Factory
 {
@@ -298,11 +370,20 @@ class ImprovementFactory extends Factory
 }
 ```
 
+### 2.6 — DocEmbeddingFactory
+
+```bash
+sail artisan make:factory DocEmbeddingFactory --model=DocEmbedding
+```
+
+Edite `database/factories/DocEmbeddingFactory.php`:
+
 ```php
-// database/factories/DocEmbeddingFactory.php
+<?php
 
 namespace Database\Factories;
 
+use Illuminate\Database\Eloquent\Factories\Factory;
 use Pgvector\Laravel\Vector;
 
 class DocEmbeddingFactory extends Factory
@@ -323,16 +404,24 @@ class DocEmbeddingFactory extends Factory
 }
 ```
 
+```bash
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add factories for all models"
+```
+
 ---
 
-## Testes Unitarios (Capitulos 3-4)
+## Passo 3 — Testes Unitarios (Enums e Models)
 
 > **Rapidos, isolados, sem banco de dados**
 
-### Enums
+### 3.1 — Testes de Enums
+
+Crie `tests/Unit/Enums/SeverityEnumTest.php`:
 
 ```php
-// tests/Unit/Enums/SeverityEnumTest.php
+<?php
 
 use App\Enums\SeverityEnum;
 
@@ -356,8 +445,10 @@ test('severity tryFrom returns null for invalid value', function () {
 });
 ```
 
+Crie `tests/Unit/Enums/ReviewPillarEnumTest.php`:
+
 ```php
-// tests/Unit/Enums/ReviewPillarEnumTest.php
+<?php
 
 use App\Enums\ReviewPillarEnum;
 
@@ -369,10 +460,12 @@ test('review pillar has 3 cases', function () {
 });
 ```
 
-### Models (atributos e casts)
+### 3.2 — Testes de Models (atributos e casts)
+
+Crie `tests/Unit/Models/UserTest.php`:
 
 ```php
-// tests/Unit/Models/UserTest.php
+<?php
 
 use App\Models\User;
 
@@ -400,8 +493,10 @@ test('user hides sensitive fields', function () {
 });
 ```
 
+Crie `tests/Unit/Models/ProjectTest.php`:
+
 ```php
-// tests/Unit/Models/ProjectTest.php
+<?php
 
 use App\Models\Project;
 
@@ -414,16 +509,32 @@ test('project has correct fillable attributes', function () {
 });
 ```
 
+### Verificar os testes unitarios
+
+```bash
+sail test --testsuite=Unit
+```
+
+Todos os testes devem passar.
+
+```bash
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add unit tests for enums and models"
+```
+
 ---
 
-## Testes de Integracao (Capitulos 3-7)
+## Passo 4 — Testes de Integracao (Relacionamentos e Migrations)
 
 > **Testam multiplas camadas juntas — models + banco + relacionamentos**
 
-### Relacionamentos
+### 4.1 — Testes de relacionamentos
+
+Crie `tests/Feature/Models/ProjectRelationshipsTest.php`:
 
 ```php
-// tests/Feature/Models/ProjectRelationshipsTest.php
+<?php
 
 use App\Models\User;
 use App\Models\Project;
@@ -469,10 +580,12 @@ test('deleting user cascades to projects', function () {
 });
 ```
 
-### Migrations (banco integro)
+### 4.2 — Testes de migrations
+
+Crie `tests/Feature/Database/MigrationTest.php`:
 
 ```php
-// tests/Feature/Database/MigrationTest.php
+<?php
 
 use Illuminate\Support\Facades\Schema;
 
@@ -499,14 +612,32 @@ test('pgvector extension is enabled', function () {
 });
 ```
 
+### Verificar os testes de integracao
+
+```bash
+sail test --testsuite=Feature --filter="Relationships|Migration"
+```
+
+```bash
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add integration tests for relationships and migrations"
+```
+
 ---
 
-## Testes Funcionais — Auth (Capitulo 7)
+## Passo 5 — Testes Funcionais de Autenticacao
 
 > **Verificam saidas esperadas baseadas em requisitos de negocio**
 
+### 5.1 — Testes de registro
+
+Crie `tests/Feature/Auth/RegisterTest.php`:
+
 ```php
-// tests/Feature/Auth/RegisterTest.php
+<?php
+
+use App\Models\User;
 
 test('user can register', function () {
     $response = $this->post('/register', [
@@ -546,8 +677,12 @@ test('registration requires unique email', function () {
 });
 ```
 
+### 5.2 — Testes de login
+
+Crie `tests/Feature/Auth/LoginTest.php`:
+
 ```php
-// tests/Feature/Auth/LoginTest.php
+<?php
 
 use App\Models\User;
 
@@ -586,12 +721,28 @@ test('authenticated user can access home', function () {
 });
 ```
 
+### Verificar os testes de autenticacao
+
+```bash
+sail test --testsuite=Feature --filter="Auth"
+```
+
+```bash
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add functional tests for authentication"
+```
+
 ---
 
-## Testes Funcionais — API (Capitulo 13)
+## Passo 6 — Testes Funcionais de API
+
+### 6.1 — Testes de token
+
+Crie `tests/Feature/Api/AuthTokenTest.php`:
 
 ```php
-// tests/Feature/Api/AuthTokenTest.php
+<?php
 
 use App\Models\User;
 
@@ -618,8 +769,12 @@ test('token generation fails with wrong credentials', function () {
 });
 ```
 
+### 6.2 — Testes de projetos via API
+
+Crie `tests/Feature/Api/ProjectApiTest.php`:
+
 ```php
-// tests/Feature/Api/ProjectApiTest.php
+<?php
 
 use App\Models\User;
 use App\Models\Project;
@@ -677,8 +832,12 @@ test('unauthenticated request returns 401', function () {
 });
 ```
 
+### 6.3 — Testes de code review via API
+
+Crie `tests/Feature/Api/CodeReviewApiTest.php`:
+
 ```php
-// tests/Feature/Api/CodeReviewApiTest.php
+<?php
 
 use App\Models\User;
 use App\Models\Project;
@@ -725,14 +884,30 @@ test('cannot create duplicate review', function () {
 });
 ```
 
+### Verificar os testes de API
+
+```bash
+sail test --testsuite=Feature --filter="Api"
+```
+
+```bash
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add functional tests for API endpoints"
+```
+
 ---
 
-## Testes de AI Agents com FakeAi (Capitulos 8-10)
+## Passo 7 — Testes de AI Agents com FakeAi
 
 > **O mais importante: testar Agents SEM chamar APIs reais**
 
+### 7.1 — Teste do CodeAnalyst
+
+Crie `tests/Feature/Agents/CodeAnalystTest.php`:
+
 ```php
-// tests/Feature/Agents/CodeAnalystTest.php
+<?php
 
 use App\Ai\Agents\CodeAnalyst;
 use App\Models\CodeReview;
@@ -774,8 +949,12 @@ test('code analysis handles agent failure', function () {
 });
 ```
 
+### 7.2 — Teste do CodeMentor
+
+Crie `tests/Feature/Agents/CodeMentorTest.php`:
+
 ```php
-// tests/Feature/Agents/CodeMentorTest.php
+<?php
 
 use App\Ai\Agents\CodeMentor;
 use App\Models\Project;
@@ -801,8 +980,12 @@ test('code mentor creates improvements via tools', function () {
 });
 ```
 
+### 7.3 — Teste de RAG (SearchDocsKnowledgeBase)
+
+Crie `tests/Feature/Rag/SearchDocsKnowledgeBaseTest.php`:
+
 ```php
-// tests/Feature/Rag/SearchDocsKnowledgeBaseTest.php
+<?php
 
 use App\Ai\Tools\SearchDocsKnowledgeBase;
 use App\Models\DocEmbedding;
@@ -835,17 +1018,32 @@ test('search docs returns relevant results', function () {
 });
 ```
 
+### Verificar os testes de Agents
+
+```bash
+sail test --testsuite=Feature --filter="Agents|Rag"
+```
+
+```bash
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add AI agent tests with FakeAi"
+```
+
 ---
 
-## Testes de Jobs (Capitulo 11)
+## Passo 8 — Testes de Jobs
+
+Crie `tests/Feature/Jobs/AnalyzeCodeJobTest.php`:
 
 ```php
-// tests/Feature/Jobs/AnalyzeCodeJobTest.php
+<?php
 
 use App\Jobs\AnalyzeCodeJob;
 use App\Models\CodeReview;
 use App\Services\CodeAnalysisService;
 use Laravel\Ai\Testing\FakeAi;
+use Illuminate\Support\Facades\Queue;
 
 test('analyze code job calls service', function () {
     FakeAi::fake();
@@ -896,14 +1094,28 @@ test('job is dispatched to queue', function () {
 });
 ```
 
+### Verificar os testes de Jobs
+
+```bash
+sail test --testsuite=Feature --filter="Jobs"
+```
+
+```bash
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add job tests with queue fake"
+```
+
 ---
 
-## Testes E2E (Capitulo 12)
+## Passo 9 — Teste E2E (fluxo completo)
 
 > **Poucos, mas cobrem o fluxo completo do usuario**
 
+Crie `tests/E2E/FullReviewFlowTest.php`:
+
 ```php
-// tests/E2E/FullReviewFlowTest.php
+<?php
 
 use App\Models\User;
 use App\Jobs\AnalyzeCodeJob;
@@ -959,14 +1171,28 @@ test('full review flow: create project -> review -> improvements', function () {
 });
 ```
 
+### Verificar o teste E2E
+
+```bash
+sail test tests/E2E/
+```
+
+```bash
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add E2E test for full review flow"
+```
+
 ---
 
-## Testes de Aceitacao (Capitulo 7)
+## Passo 10 — Testes de Aceitacao
 
 > **Focados no comportamento do usuario**
 
+Crie `tests/Feature/Acceptance/UserJourneyTest.php`:
+
 ```php
-// tests/Feature/Acceptance/UserJourneyTest.php
+<?php
 
 use App\Models\User;
 
@@ -1001,14 +1227,28 @@ test('regular user cannot access admin panel', function () {
 });
 ```
 
+### Verificar os testes de aceitacao
+
+```bash
+sail test --testsuite=Feature --filter="Acceptance"
+```
+
+```bash
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add acceptance tests for user journey"
+```
+
 ---
 
-## Testes de Performance (Capitulo 9)
+## Passo 11 — Testes de Performance
 
 > **Simulam carga para validar performance do RAG**
 
+Crie `tests/Performance/RagPerformanceTest.php`:
+
 ```php
-// tests/Performance/RagPerformanceTest.php
+<?php
 
 use App\Models\DocEmbedding;
 use Pgvector\Laravel\Distance;
@@ -1047,14 +1287,30 @@ test('bulk embedding creation is efficient', function () {
 });
 ```
 
+### Verificar os testes de performance
+
+```bash
+sail test tests/Performance/
+```
+
+```bash
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add performance tests for RAG queries"
+```
+
 ---
 
-## Smoke Tests (Capitulo 12)
+## Passo 12 — Smoke Tests
 
 > **Rodam apos deploy para validar o basico**
 
+### 12.1 — Health check
+
+Crie `tests/Smoke/HealthCheckTest.php`:
+
 ```php
-// tests/Smoke/HealthCheckTest.php
+<?php
 
 test('health endpoint returns ok', function () {
     $this->getJson('/health')
@@ -1080,8 +1336,12 @@ test('pgvector extension is available', function () {
 });
 ```
 
+### 12.2 — Swagger
+
+Crie `tests/Smoke/SwaggerTest.php`:
+
 ```php
-// tests/Smoke/SwaggerTest.php
+<?php
 
 test('swagger documentation is accessible', function () {
     $this->get('/api/documentation')->assertOk();
@@ -1098,13 +1358,25 @@ test('swagger json is valid', function () {
 });
 ```
 
+### Verificar os smoke tests
+
+```bash
+sail test tests/Smoke/
+```
+
+```bash
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add smoke tests for health check and swagger"
+```
+
 ---
 
-## CI/CD — GitHub Actions
+## Passo 13 — CI/CD com GitHub Actions
 
 Vamos configurar um pipeline de CI/CD que roda automaticamente todos os testes a cada push ou pull request.
 
-### Criando o workflow
+### 13.1 — Criar o workflow
 
 ```bash
 mkdir -p .github/workflows
@@ -1211,7 +1483,7 @@ jobs:
           DB_PASSWORD: password
 ```
 
-### Como o workflow funciona
+### 13.2 — Como o workflow funciona
 
 ```
 Push/PR no GitHub
@@ -1237,10 +1509,10 @@ Push/PR no GitHub
 +----------------------------------------------+
        |
        v
-  Badge: ✅ Passing / ❌ Failing
+  Badge: Passing / Failing
 ```
 
-### Pontos-chave do workflow
+### 13.3 — Pontos-chave do workflow
 
 | Configuracao | Motivo |
 |-------------|--------|
@@ -1251,7 +1523,7 @@ Push/PR no GitHub
 | pgvector habilitado **antes** das migrations | Migrations usam `CREATE EXTENSION vector` |
 | Testes separados por step | Fica claro qual suite falhou no log do GitHub |
 
-### Triggers — quando o workflow roda
+### 13.4 — Triggers — quando o workflow roda
 
 ```yaml
 on:
@@ -1268,7 +1540,7 @@ Isso significa:
 
 > **Dica:** No repositorio do GitHub, va em **Settings > Branches > Branch protection rules** e ative "Require status checks to pass before merging" selecionando o job `tests`. Assim nenhum PR pode ser mergeado sem os testes passarem.
 
-### Adicionando badge no README
+### 13.5 — Adicionando badge no README
 
 Adicione no topo do `README.md` para mostrar o status dos testes:
 
@@ -1276,7 +1548,7 @@ Adicione no topo do `README.md` para mostrar o status dos testes:
 ![Tests](https://github.com/SEU-USUARIO/codereview-ai/actions/workflows/tests.yml/badge.svg)
 ```
 
-### Inicializando o repositorio
+### 13.6 — Inicializando o repositorio
 
 ```bash
 # Dentro do diretorio do projeto
@@ -1298,7 +1570,7 @@ git push -u origin main
 
 Apos o push, acesse a aba **Actions** no GitHub para ver o workflow rodando.
 
-### Segredos e variaveis de ambiente
+### 13.7 — Segredos e variaveis de ambiente
 
 Os testes usam `FakeAi` (Capitulo 8-10), entao **nao precisam** de `GEMINI_API_KEY` no CI. Mas se quiser rodar testes de integracao real com a API:
 
@@ -1314,6 +1586,93 @@ Os testes usam `FakeAi` (Capitulo 8-10), entao **nao precisam** de `GEMINI_API_K
 ```
 
 > **Importante:** Nunca commite chaves de API no repositorio. Use sempre GitHub Secrets.
+
+```bash
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add GitHub Actions CI/CD workflow"
+```
+
+---
+
+## Passo 14 — Rodar todos os testes
+
+Antes de criar o PR, rode todos os testes para garantir que tudo passa:
+
+```bash
+# Todos os testes
+sail test
+
+# Apenas unitarios
+sail test --testsuite=Unit
+
+# Apenas feature
+sail test --testsuite=Feature
+
+# Filtrar por nome
+sail test --filter="ProjectTest"
+
+# Com cobertura
+sail test --coverage --min=80
+
+# Modo watch (reexecuta ao salvar)
+sail test --watch
+```
+
+---
+
+## Passo 15 — Commitar e criar PR
+
+```bash
+cd ~/laravel_ai
+git add .
+git commit -m "feat: finalize test suite for all chapters"
+
+# Push da branch
+git push -u origin feat/cap14-tests
+
+# Criar Pull Request
+gh pr create --title "feat: testes automatizados completos" --body "Capitulo 14 - Pest, Factories, testes unitarios, integracao, funcionais, E2E, aceitacao, performance, smoke e CI/CD com GitHub Actions"
+
+# Apos merge do PR no GitHub:
+git checkout main
+git pull
+```
+
+---
+
+## Resumo do que foi criado
+
+| Arquivo | O que faz |
+|---------|-----------|
+| `tests/Pest.php` | Configuracao base do Pest |
+| `database/factories/UserFactory.php` | Factory de User com states `admin()` e `withReview()` |
+| `database/factories/ProjectFactory.php` | Factory de Project com state `completed()` |
+| `database/factories/CodeReviewFactory.php` | Factory de CodeReview com states `completed()` e `failed()` |
+| `database/factories/ReviewFindingFactory.php` | Factory de ReviewFinding com states `flaggedByAgent()` e `critical()` |
+| `database/factories/ImprovementFactory.php` | Factory de Improvement com state `done()` |
+| `database/factories/DocEmbeddingFactory.php` | Factory de DocEmbedding com vetor 768 dims |
+| `tests/Unit/Enums/SeverityEnumTest.php` | Testa valores e cases do SeverityEnum |
+| `tests/Unit/Enums/ReviewPillarEnumTest.php` | Testa valores e cases do ReviewPillarEnum |
+| `tests/Unit/Models/UserTest.php` | Testa fillable, casts e hidden do User |
+| `tests/Unit/Models/ProjectTest.php` | Testa fillable do Project |
+| `tests/Feature/Models/ProjectRelationshipsTest.php` | Testa relacionamentos e cascade delete |
+| `tests/Feature/Database/MigrationTest.php` | Verifica tabelas, pgvector e colunas |
+| `tests/Feature/Auth/RegisterTest.php` | Testa registro de usuario |
+| `tests/Feature/Auth/LoginTest.php` | Testa login, logout e acesso |
+| `tests/Feature/Api/AuthTokenTest.php` | Testa geracao de token Sanctum |
+| `tests/Feature/Api/ProjectApiTest.php` | Testa CRUD de projetos via API |
+| `tests/Feature/Api/CodeReviewApiTest.php` | Testa criacao de review via API |
+| `tests/Feature/Agents/CodeAnalystTest.php` | Testa Agent com FakeAi |
+| `tests/Feature/Agents/CodeMentorTest.php` | Testa Agent multi-tool com FakeAi |
+| `tests/Feature/Rag/SearchDocsKnowledgeBaseTest.php` | Testa busca RAG com embeddings fake |
+| `tests/Feature/Jobs/AnalyzeCodeJobTest.php` | Testa job com Queue fake |
+| `tests/E2E/FullReviewFlowTest.php` | Fluxo completo: registro -> review -> findings |
+| `tests/Feature/Acceptance/UserJourneyTest.php` | Jornada do usuario e controle de acesso |
+| `tests/Performance/RagPerformanceTest.php` | Benchmark de query pgvector com 1000 docs |
+| `tests/Smoke/HealthCheckTest.php` | Verifica health, login page e pgvector |
+| `tests/Smoke/SwaggerTest.php` | Verifica documentacao Swagger |
+| `.github/workflows/tests.yml` | Pipeline CI/CD com PostgreSQL + pgvector |
 
 ---
 
@@ -1336,3 +1695,7 @@ Os testes usam `FakeAi` (Capitulo 8-10), entao **nao precisam** de `GEMINI_API_K
 | 13 (API) | Funcional: endpoints | `tests/Feature/Api/` |
 | 13 (Swagger) | Smoke: docs | `tests/Smoke/SwaggerTest.php` |
 | E2E | Fluxo completo | `tests/E2E/FullReviewFlowTest.php` |
+
+## Proximo capitulo
+
+No [Capitulo 15 — Monitoramento e Observabilidade](15-monitoramento.md) vamos configurar logs estruturados, metricas e tracing para o projeto em producao.

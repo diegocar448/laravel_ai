@@ -769,15 +769,21 @@ class DatabaseSeeder extends Seeder
 
 ## Passo 10 — Rodar tudo
 
-Agora vamos executar as migrations e seeders:
+Agora vamos executar as migrations e seeders. Use `migrate:fresh --seed` para garantir que tudo seja criado do zero, sem conflitos com tabelas que possam ter sido criadas anteriormente (por exemplo, pelo `vendor:publish` do Laravel AI SDK):
 
 ```bash
-# Rodar todas as migrations
-sail artisan migrate
-
-# Popular tabelas de lookup
-sail artisan db:seed
+# Apaga TODAS as tabelas, roda TODAS as migrations e executa os seeders
+sail artisan migrate:fresh --seed
 ```
+
+> **Por que `migrate:fresh --seed` e nao `migrate`?** Se voce ja rodou `migrate` antes (no Capitulo 2, por exemplo), algumas tabelas podem ja existir e o `migrate` vai falhar com "Duplicate table". O `migrate:fresh` apaga tudo e recria do zero. Como estamos no inicio do projeto, nao ha dados para perder.
+
+> **Quando usar cada comando:**
+> | Comando | O que faz | Quando usar |
+> |---------|-----------|-------------|
+> | `sail artisan migrate` | Roda apenas migrations pendentes | Quando adicionar novas migrations |
+> | `sail artisan migrate:fresh` | Apaga tudo e roda todas do zero | Quando mudar migrations existentes |
+> | `sail artisan migrate:fresh --seed` | Apaga tudo, roda migrations e seeders | Quando precisar de dados de lookup |
 
 ### Verificar se tudo foi criado
 
