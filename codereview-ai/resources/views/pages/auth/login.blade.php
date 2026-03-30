@@ -1,5 +1,4 @@
 <?php
-// resources/views/pages/auth/login.blade.php
 
 use Livewire\Volt\Component;
 use App\Livewire\Forms\LoginForm;
@@ -17,21 +16,20 @@ new class extends Component
 ?>
 
 <x-layouts.guest>
-    <div>
-        <h1>Login</h1>
+    <x-card class="max-w-md mx-auto mt-20">
+        <x-card.header>
+            <h1 class="text-2xl font-bold">Entrar</h1>
+        </x-card.header>
+        <x-card.body>
+            <form wire:submit="login" class="space-y-4">
+                <x-form.input wire:model="form.email" type="email" label="E-mail" />
+                <x-form.input wire:model="form.password" type="password" label="Senha" />
+                <x-button type="submit" class="w-full">Entrar</x-button>
+            </form>
 
-        <form wire:submit="login">
-            <x-form.input wire:model="form.email" label="Email" type="email" />
-            <x-form.input wire:model="form.password" label="Senha" type="password" />
-
-            <label>
-                <input type="checkbox" wire:model="form.remember">
-                Lembrar de mim
-            </label>
-
-            <x-button type="submit">Entrar</x-button>
-        </form>
-
-        <p>Nao tem conta? <a href="{{ route('register') }}">Registre-se</a></p>
-    </div>
+            <p class="mt-4 text-center text-sm text-gray-500">
+                Nao tem conta? <a href="{{ route('register') }}" class="text-indigo-600">Cadastre-se</a>
+            </p>
+        </x-card.body>
+    </x-card>
 </x-layouts.guest>
