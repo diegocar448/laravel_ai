@@ -22,19 +22,16 @@ class RegisterForm extends Form
         ];
     }
 
-    public function store(): User
+    public function register(): void
     {
         $this->validate();
 
         $user = User::create([
             'name' => $this->name,
             'email' => $this->email,
-            'password' => $this->password,
+            'password' => $this->password,  // Cast 'hashed' cuida do bcrypt
         ]);
 
         Auth::login($user);
-        session()->regenerate();
-
-        return $user;
     }
 }
