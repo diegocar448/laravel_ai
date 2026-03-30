@@ -10,13 +10,12 @@ class LoginForm extends Form
 {
     public string $email = '';
     public string $password = '';
-    public bool $remember = false;
 
     public function rules(): array
     {
         return [
             'email' => 'required|email',
-            'password' => 'required|string|min:8',
+            'password' => 'required|string',
         ];
     }
 
@@ -24,9 +23,9 @@ class LoginForm extends Form
     {
         $this->validate();
 
-        if (! Auth::attempt(['email' => $this->email, 'password' => $this->password], $this->remember)) {
+        if (!Auth::attempt(['email' => $this->email, 'password' => $this->password])) {
             throw ValidationException::withMessages([
-                'email' => __('auth.failed'),
+                'email' => 'As credenciais fornecidas nao correspondem aos nossos registros.',
             ]);
         }
 
