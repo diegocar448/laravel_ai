@@ -31,7 +31,7 @@ new class extends Component
 }
 ?>
 
-<x-layouts.app>
+<x-layouts::app>
     <div>
         <h1>{{ $project->name }}</h1>
         <span class="text-sm text-gray-500">{{ $project->language }}</span>
@@ -78,4 +78,4 @@ new class extends Component
             </div>
         @endif
     </div>
-</x-layouts.app>
+</x-layouts::app>

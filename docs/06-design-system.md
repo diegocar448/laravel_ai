@@ -93,6 +93,8 @@ Os layouts sao a base visual de todas as paginas. Vamos criar dois: `app` (para 
 mkdir -p resources/views/layouts
 ```
 
+> **Como funciona:** O Livewire 4.2 registra automaticamente o namespace `layouts` apontando para `resources/views/layouts/`. Assim, `<x-layouts::guest>` resolve para `resources/views/layouts/guest.blade.php`. Alem disso, o layout padrao do Livewire para page components e `layouts::app`, que tambem resolve para `resources/views/layouts/app.blade.php`.
+
 ### 2.2 — Layout App (usuarios autenticados)
 
 Crie `resources/views/layouts/app.blade.php`:
@@ -862,7 +864,7 @@ mkdir -p resources/views/pages
 Crie `resources/views/pages/design-system.blade.php`:
 
 ```html
-<x-layouts.guest>
+<x-layouts::guest>
     <x-slot:title>Design System — CodeReview AI</x-slot:title>
 
     <div class="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
@@ -1064,7 +1066,7 @@ public function charge(User $user, float $amount): bool
 
         </div>
     </div>
-</x-layouts.guest>
+</x-layouts::guest>
 ```
 
 ```bash

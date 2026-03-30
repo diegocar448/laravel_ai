@@ -15,7 +15,7 @@ new class extends Component
 }
 ?>
 
-<x-layouts.guest>
+<x-layouts::guest>
     <x-card class="max-w-md mx-auto mt-20">
         <x-card.header>
             <h1 class="text-2xl font-bold">Entrar</h1>
@@ -32,4 +32,4 @@ new class extends Component
             </p>
         </x-card.body>
     </x-card>
-</x-layouts.guest>
+</x-layouts::guest>

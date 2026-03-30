@@ -24,7 +24,7 @@ new class extends Component
 }
 ?>
 
-<x-layouts.app>
+<x-layouts::app>
     <div>
         <h1>Meus Projetos</h1>
 
@@ -56,4 +56,4 @@ new class extends Component
             <x-button type="submit">Enviar para analise</x-button>
         </form>
     </div>
-</x-layouts.app>
+</x-layouts::app>

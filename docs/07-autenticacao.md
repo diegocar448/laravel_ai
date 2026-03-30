@@ -186,7 +186,7 @@ new class extends Component
 }
 ?>
 
-<x-layouts.guest>
+<x-layouts::guest>
     <x-card class="max-w-md mx-auto mt-20">
         <x-card.header>
             <h1 class="text-2xl font-bold">Criar conta</h1>
@@ -205,7 +205,7 @@ new class extends Component
             </p>
         </x-card.body>
     </x-card>
-</x-layouts.guest>
+</x-layouts::guest>
 ```
 
 **Como funciona:**
@@ -238,7 +238,7 @@ new class extends Component
 }
 ?>
 
-<x-layouts.guest>
+<x-layouts::guest>
     <x-card class="max-w-md mx-auto mt-20">
         <x-card.header>
             <h1 class="text-2xl font-bold">Entrar</h1>
@@ -255,7 +255,7 @@ new class extends Component
             </p>
         </x-card.body>
     </x-card>
-</x-layouts.guest>
+</x-layouts::guest>
 ```
 
 ```bash
@@ -435,7 +435,7 @@ new class extends Component
 }
 ?>
 
-<x-layouts.app>
+<x-layouts::app>
     <x-section title="Usuarios" description="Lista de todos os usuarios do sistema">
         <x-table>
             <x-slot:head>
@@ -462,7 +462,7 @@ new class extends Component
             {{ $users->links() }}
         </div>
     </x-section>
-</x-layouts.app>
+</x-layouts::app>
 ```
 
 **Pontos importantes:**

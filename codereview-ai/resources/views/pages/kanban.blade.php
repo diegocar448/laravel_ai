@@ -43,7 +43,7 @@ new class extends Component
 }
 ?>
 
-<x-layouts.app>
+<x-layouts::app>
     <div>
         <h1>Kanban de Melhorias</h1>
 
@@ -82,4 +82,4 @@ new class extends Component
             </div>
         </div>
     </div>
-</x-layouts.app>
+</x-layouts::app>

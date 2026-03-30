@@ -7,7 +7,7 @@ new class extends Component
     //
 }; ?>
 
-<x-layouts.guest>
+<x-layouts::guest>
     <x-slot:title>Design System — CodeReview AI</x-slot:title>
 
     <div class="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
@@ -209,4 +209,4 @@ public function charge(User $user, float $amount): bool
 
         </div>
     </div>
-</x-layouts.guest>
+</x-layouts::guest>

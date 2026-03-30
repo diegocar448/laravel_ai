@@ -76,7 +76,61 @@ new class extends Component
 
 ---
 
-## Passo 1 — Criar o arquivo de rotas
+## Passo 1 — Configurar o Volt no AppServiceProvider
+
+O Livewire Volt precisa saber **onde** procurar componentes single-file. Sem essa configuracao, ao acessar qualquer pagina voce vera o erro:
+
+```
+Unable to find component: [pages.auth.register]
+```
+
+Edite `app/Providers/AppServiceProvider.php`:
+
+```php
+<?php
+
+namespace App\Providers;
+
+use Illuminate\Support\ServiceProvider;
+use Livewire\Volt\Volt;
+
+class AppServiceProvider extends ServiceProvider
+{
+    /**
+     * Register any application services.
+     */
+    public function register(): void
+    {
+        //
+    }
+
+    /**
+     * Bootstrap any application services.
+     */
+    public function boot(): void
+    {
+        Volt::mount([
+            resource_path('views'),
+        ]);
+    }
+}
+```
+
+**Pontos importantes:**
+- `Volt::mount()` — registra os diretorios onde o Volt deve buscar componentes single-file
+- `resource_path('views')` — o Volt busca a partir de `resources/views/`. Como as rotas usam `pages.home`, o Volt traduz para `resources/views/pages/home.blade.php`
+- **Importante:** se voce usar `resource_path('views/pages')`, o Volt procuraria em `views/pages/pages/home.blade.php` (duplicando "pages") e daria erro `Unable to find component`
+- Sem isso, `Route::livewire('/', 'pages.home')` nao encontra o componente
+
+```bash
+cd ~/laravel_ai
+git add .
+git commit -m "feat: configure Volt mount in AppServiceProvider"
+```
+
+---
+
+## Passo 2 — Criar o arquivo de rotas
 
 Edite `routes/web.php` e substitua todo o conteudo:
 
@@ -136,7 +190,7 @@ git commit -m "feat: add routes/web.php with Livewire Volt routes"
 
 ---
 
-## Passo 2 — Criar os diretorios das paginas
+## Passo 3 — Criar os diretorios das paginas
 
 Antes de criar os arquivos Blade, precisamos dos diretorios:
 
@@ -150,7 +204,7 @@ mkdir -p resources/views/pages/design-system
 
 ---
 
-## Passo 3 — Criar a pagina Home
+## Passo 4 — Criar a pagina Home
 
 A pagina Home lista os projetos do usuario e tem o formulario para criar novos projetos.
 
@@ -183,7 +237,7 @@ new class extends Component
 }
 ?>
 
-<x-layouts.app>
+<x-layouts::app>
     <div>
         <h1>Meus Projetos</h1>
 
@@ -215,7 +269,7 @@ new class extends Component
             <x-button type="submit">Enviar para analise</x-button>
         </form>
     </div>
-</x-layouts.app>
+</x-layouts::app>
 ```
 
 **O que esta acontecendo:**
@@ -226,7 +280,7 @@ new class extends Component
 
 ---
 
-## Passo 4 — Criar a pagina Kanban
+## Passo 5 — Criar a pagina Kanban
 
 A pagina mais complexa do projeto. Usa Alpine.js para drag-and-drop e Livewire para persistir mudancas.
 
@@ -278,7 +332,7 @@ new class extends Component
 }
 ?>
 
-<x-layouts.app>
+<x-layouts::app>
     <div>
         <h1>Kanban de Melhorias</h1>
 
@@ -317,7 +371,7 @@ new class extends Component
             </div>
         </div>
     </div>
-</x-layouts.app>
+</x-layouts::app>
 ```
 
 **Estrutura visual do Kanban:**
@@ -348,7 +402,7 @@ git commit -m "feat: add home and kanban Volt pages"
 
 ---
 
-## Passo 5 — Criar a pagina Project Show
+## Passo 6 — Criar a pagina Project Show
 
 Crie `resources/views/pages/projects/show.blade.php`:
 
@@ -386,7 +440,7 @@ new class extends Component
 }
 ?>
 
-<x-layouts.app>
+<x-layouts::app>
     <div>
         <h1>{{ $project->name }}</h1>
         <span class="text-sm text-gray-500">{{ $project->language }}</span>
@@ -433,12 +487,12 @@ new class extends Component
             </div>
         @endif
     </div>
-</x-layouts.app>
+</x-layouts::app>
 ```
 
 ---
 
-## Passo 6 — Criar a pagina Review Show
+## Passo 7 — Criar a pagina Review Show
 
 Crie `resources/views/pages/reviews/show.blade.php`:
 
@@ -468,7 +522,7 @@ new class extends Component
 }
 ?>
 
-<x-layouts.app>
+<x-layouts::app>
     <div>
         <h1>Review: {{ $review->project->name }}</h1>
         <span class="text-sm">{{ $review->status->name }}</span>
@@ -499,7 +553,7 @@ new class extends Component
             @endif
         </div>
     </div>
-</x-layouts.app>
+</x-layouts::app>
 ```
 
 **Diretivas wire: usadas neste capitulo:**
@@ -541,7 +595,7 @@ git commit -m "feat: add project show and review show Volt pages"
 
 ---
 
-## Passo 7 — Criar o diretorio dos Form Objects
+## Passo 8 — Criar o diretorio dos Form Objects
 
 ```bash
 mkdir -p app/Livewire/Forms
@@ -549,7 +603,7 @@ mkdir -p app/Livewire/Forms
 
 ---
 
-## Passo 8 — Criar o ProjectForm
+## Passo 9 — Criar o ProjectForm
 
 Crie `app/Livewire/Forms/ProjectForm.php`:
 
@@ -614,7 +668,7 @@ public function save(): void
 
 ---
 
-## Passo 9 — Criar o LoginForm
+## Passo 10 — Criar o LoginForm
 
 Crie `app/Livewire/Forms/LoginForm.php`:
 
@@ -658,7 +712,7 @@ class LoginForm extends Form
 
 ---
 
-## Passo 10 — Criar o RegisterForm
+## Passo 11 — Criar o RegisterForm
 
 Crie `app/Livewire/Forms/RegisterForm.php`:
 
@@ -714,7 +768,7 @@ git commit -m "feat: add LoginForm and RegisterForm objects"
 
 ---
 
-## Passo 11 — Criar o CodeReviewForm
+## Passo 12 — Criar o CodeReviewForm
 
 Crie `app/Livewire/Forms/CodeReviewForm.php`:
 
@@ -751,9 +805,9 @@ class CodeReviewForm extends Form
 
 ---
 
-## Passo 12 — Criar as paginas de autenticacao
+## Passo 13 — Criar as paginas de autenticacao
 
-### 12.1 — Login
+### 13.1 — Login
 
 Crie `resources/views/pages/auth/login.blade.php`:
 
@@ -776,7 +830,7 @@ new class extends Component
 }
 ?>
 
-<x-layouts.guest>
+<x-layouts::guest>
     <div>
         <h1>Login</h1>
 
@@ -794,10 +848,10 @@ new class extends Component
 
         <p>Nao tem conta? <a href="{{ route('register') }}">Registre-se</a></p>
     </div>
-</x-layouts.guest>
+</x-layouts::guest>
 ```
 
-### 12.2 — Register
+### 13.2 — Register
 
 Crie `resources/views/pages/auth/register.blade.php`:
 
@@ -820,7 +874,7 @@ new class extends Component
 }
 ?>
 
-<x-layouts.guest>
+<x-layouts::guest>
     <div>
         <h1>Criar Conta</h1>
 
@@ -835,7 +889,7 @@ new class extends Component
 
         <p>Ja tem conta? <a href="{{ route('login') }}">Faca login</a></p>
     </div>
-</x-layouts.guest>
+</x-layouts::guest>
 ```
 
 ```bash
@@ -847,7 +901,7 @@ git commit -m "feat: add CodeReviewForm and auth Volt pages (login, register)"
 
 ---
 
-## Passo 13 — Commitar e criar PR
+## Passo 14 — Commitar e criar PR
 
 ```bash
 cd ~/laravel_ai
