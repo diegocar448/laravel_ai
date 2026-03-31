@@ -76,17 +76,20 @@ class RegisterForm extends Form
         ];
     }
 
-    public function register(): void
+    public function store(): User
     {
         $this->validate();
 
         $user = User::create([
             'name' => $this->name,
             'email' => $this->email,
-            'password' => $this->password,  // Cast 'hashed' cuida do bcrypt
+            'password' => $this->password,
         ]);
 
         Auth::login($user);
+        session()->regenerate();
+
+        return $user;
     }
 }
 ```
@@ -94,7 +97,9 @@ class RegisterForm extends Form
 **Pontos importantes:**
 - `'password' => 'required|string|min:8|confirmed'` — a regra `confirmed` exige que exista um campo `password_confirmation` com o mesmo valor
 - `Auth::login($user)` — loga o usuario automaticamente apos o registro
+- `session()->regenerate()` — previne session fixation (seguranca)
 - O cast `'password' => 'hashed'` no Model User (Capitulo 4) aplica bcrypt ao salvar
+- O metodo retorna o `User` criado para flexibilidade de uso
 
 ---
 
@@ -130,7 +135,7 @@ class LoginForm extends Form
 
         if (!Auth::attempt(['email' => $this->email, 'password' => $this->password])) {
             throw ValidationException::withMessages([
-                'email' => 'As credenciais fornecidas nao correspondem aos nossos registros.',
+                'form.email' => 'As credenciais fornecidas nao correspondem aos nossos registros.',
             ]);
         }
 
@@ -167,46 +172,50 @@ Crie `resources/views/pages/auth/register.blade.php`:
 <?php
 
 use Livewire\Volt\Component;
+use Livewire\Attributes\Layout;
 use App\Livewire\Forms\RegisterForm;
 
+#[Layout('layouts::guest')]
 new class extends Component
 {
     public RegisterForm $form;
 
     public function register(): void
     {
-        $this->form->register();
+        $this->form->store();
         $this->redirect(route('home'));
     }
 }
 ?>
 
-<x-layouts.guest>
-    <x-card class="max-w-md mx-auto mt-20">
-        <x-card.header>
-            <h1 class="text-2xl font-bold">Criar conta</h1>
-        </x-card.header>
-        <x-card.body>
-            <form wire:submit="register" class="space-y-4">
-                <x-form.input wire:model="form.name" label="Nome" />
-                <x-form.input wire:model="form.email" type="email" label="E-mail" />
-                <x-form.input wire:model="form.password" type="password" label="Senha" />
-                <x-form.input wire:model="form.password_confirmation" type="password" label="Confirmar senha" />
-                <x-button type="submit" class="w-full">Cadastrar</x-button>
-            </form>
+<x-card class="max-w-md mx-auto mt-20">
+    <x-card.header>
+        <h1 class="text-2xl font-bold">Criar conta</h1>
+    </x-card.header>
+    <x-card.body>
+        <form wire:submit="register" class="space-y-4">
+            <x-form.input wire:model="form.name" label="Nome" />
+            <x-form.input wire:model="form.email" type="email" label="E-mail" />
+            <x-form.input wire:model="form.password" type="password" label="Senha" />
+            <x-form.input wire:model="form.password_confirmation" type="password" label="Confirmar senha" />
+            <x-button type="submit" class="w-full" wire:loading.attr="disabled">
+                <span wire:loading.remove>Cadastrar</span>
+                <span wire:loading>Cadastrando...</span>
+            </x-button>
+        </form>
 
-            <p class="mt-4 text-center text-sm text-gray-500">
-                Ja tem conta? <a href="{{ route('login') }}" class="text-indigo-600">Entrar</a>
-            </p>
-        </x-card.body>
-    </x-card>
-</x-layouts.guest>
+        <p class="mt-4 text-center text-sm text-gray-500">
+            Ja tem conta? <a href="{{ route('login') }}" class="text-indigo-600">Entrar</a>
+        </p>
+    </x-card.body>
+</x-card>
 ```
 
 **Como funciona:**
-- `wire:submit="register"` — ao submeter, chama o metodo `register()` do componente
-- O componente delega para `$this->form->register()` (RegisterForm)
+- `wire:submit="register"` — ao submeter, chama o metodo `register()` do componente Volt
+- O componente delega para `$this->form->store()` (RegisterForm)
 - Apos sucesso, redireciona para a home
+- Note que o metodo do componente se chama `register()` (acao da pagina) e o metodo do Form se chama `store()` (acao de persistencia) — sao responsabilidades diferentes
 
 ---
 
@@ -218,8 +227,10 @@ Crie `resources/views/pages/auth/login.blade.php`:
 <?php
 
 use Livewire\Volt\Component;
+use Livewire\Attributes\Layout;
 use App\Livewire\Forms\LoginForm;
 
+#[Layout('layouts::guest')]
 new class extends Component
 {
     public LoginForm $form;
@@ -232,24 +243,25 @@ new class extends Component
 }
 ?>
 
-<x-layouts.guest>
-    <x-card class="max-w-md mx-auto mt-20">
-        <x-card.header>
-            <h1 class="text-2xl font-bold">Entrar</h1>
-        </x-card.header>
-        <x-card.body>
-            <form wire:submit="login" class="space-y-4">
-                <x-form.input wire:model="form.email" type="email" label="E-mail" />
-                <x-form.input wire:model="form.password" type="password" label="Senha" />
-                <x-button type="submit" class="w-full">Entrar</x-button>
-            </form>
+<x-card class="max-w-md mx-auto mt-20">
+    <x-card.header>
+        <h1 class="text-2xl font-bold">Entrar</h1>
+    </x-card.header>
+    <x-card.body>
+        <form wire:submit="login" class="space-y-4">
+            <x-form.input wire:model="form.email" type="email" label="E-mail" />
+            <x-form.input wire:model="form.password" type="password" label="Senha" />
+            <x-button type="submit" class="w-full" wire:loading.attr="disabled">
+                <span wire:loading.remove>Entrar</span>
+                <span wire:loading>Entrando...</span>
+            </x-button>
+        </form>
 
-            <p class="mt-4 text-center text-sm text-gray-500">
-                Nao tem conta? <a href="{{ route('register') }}" class="text-indigo-600">Cadastre-se</a>
-            </p>
-        </x-card.body>
-    </x-card>
-</x-layouts.guest>
+        <p class="mt-4 text-center text-sm text-gray-500">
+            Nao tem conta? <a href="{{ route('register') }}" class="text-indigo-600">Cadastre-se</a>
+        </p>
+    </x-card.body>
+</x-card>
 ```
 
 ```bash
@@ -302,10 +314,10 @@ Edite `bootstrap/app.php` para registrar o alias `admin`:
 ```php
 <?php
 
+use App\Http\Middleware\AdminMiddleware;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
-use App\Http\Middleware\AdminMiddleware;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -313,12 +325,12 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
-    ->withMiddleware(function (Middleware $middleware) {
+    ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'admin' => AdminMiddleware::class,
         ]);
     })
-    ->withExceptions(function (Exceptions $exceptions) {
+    ->withExceptions(function (Exceptions $exceptions): void {
         //
     })->create();
 ```
@@ -337,59 +349,58 @@ git commit -m "feat: add admin middleware with alias registration"
 
 ---
 
-## Passo 6 — Configurar as rotas de autenticacao
+## Passo 6 — Atualizar as rotas com autenticacao
 
-Edite `routes/web.php` para adicionar as rotas de login, registro, logout e admin:
+O `routes/web.php` ja existe do Capitulo 5. Agora vamos **atualizar** o logout para ser mais seguro (invalidar sessao e regenerar CSRF token).
+
+Edite `routes/web.php` — o arquivo completo fica assim:
 
 ```php
 <?php
 
 use Illuminate\Support\Facades\Route;
-use Livewire\Volt\Volt;
 
-/*
-|--------------------------------------------------------------------------
-| Rotas de convidado (guest) — so para usuarios NAO autenticados
-|--------------------------------------------------------------------------
-*/
-Route::middleware('guest')->group(function () {
-    Volt::route('/login', 'pages.auth.login')->name('login');
-    Volt::route('/register', 'pages.auth.register')->name('register');
-});
-
-/*
-|--------------------------------------------------------------------------
-| Logout
-|--------------------------------------------------------------------------
-*/
-Route::post('/logout', function () {
-    auth()->logout();
-    request()->session()->invalidate();
-    request()->session()->regenerateToken();
-
-    return redirect('/login');
-})->name('logout');
-
-/*
-|--------------------------------------------------------------------------
-| Rotas autenticadas
-|--------------------------------------------------------------------------
-*/
+// Rotas autenticadas
 Route::middleware('auth')->group(function () {
-    Volt::route('/', 'pages.home')->name('home');
+    Route::livewire('/', 'pages.home')->name('home');
+    Route::livewire('/kanban', 'pages.kanban')->name('kanban');
+    Route::livewire('/project/{project}', 'pages.projects.show')->name('project');
+    Route::livewire('/review/{codeReview}', 'pages.reviews.show')->name('review');
 
-    // Painel Admin — so is_admin = true
-    Route::middleware('admin')->group(function () {
-        Volt::route('/admin/users', 'pages.admin.users')->name('admin.users');
-    });
+    // Admin — so is_admin = true
+    Route::livewire('/admin/users', 'pages.admin.users')
+        ->middleware('admin')
+        ->name('admin.users');
+
+    // Logout (mais seguro: invalida sessao + regenera CSRF token)
+    Route::post('/logout', function () {
+        auth()->logout();
+        request()->session()->invalidate();
+        request()->session()->regenerateToken();
+
+        return redirect('/login');
+    })->name('logout');
 });
+
+// Rotas guest (nao autenticado)
+Route::middleware('guest')->group(function () {
+    Route::livewire('/login', 'pages.auth.login')->name('login');
+    Route::livewire('/register', 'pages.auth.register')->name('register');
+});
+
+// Design System (publico)
+Route::livewire('/design-system', 'pages.design-system.index')->name('design-system');
 ```
+
+**O que mudou em relacao ao Capitulo 5:**
+- Logout agora inclui `session()->invalidate()` e `session()->regenerateToken()` — previne session fixation
+- Todas as rotas ja existiam, apenas o logout foi reforçado
 
 **Pontos importantes:**
 - `middleware('guest')` — redireciona para `/` se ja autenticado (evita acessar login/register logado)
 - `middleware('auth')` — redireciona para `/login` se nao autenticado
-- `middleware('admin')` — verifica `is_admin` (nosso middleware customizado)
-- `Volt::route()` — registra rota Livewire Volt single-file
+- `middleware('admin')` — verifica `is_admin` (nosso middleware customizado do Passo 5)
+- `Route::livewire()` — registra rota Livewire single-file (sintaxe do Laravel 13)
 - O logout invalida a sessao, regenera o CSRF token e redireciona para login
 
 ```bash
@@ -430,36 +441,32 @@ new class extends Component
 }
 ?>
 
-<x-layouts.app>
-    <x-section>
-        <x-section.header>
-            <h1>Usuarios</h1>
-        </x-section.header>
-
+<x-section title="Usuarios" description="Lista de todos os usuarios do sistema">
         <x-table>
-            <thead>
+            <x-slot:head>
                 <tr>
-                    <th>Nome</th>
-                    <th>E-mail</th>
-                    <th>Primeiro Review</th>
-                    <th>Primeiro Plano</th>
-                    <th>Admin</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Nome</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">E-mail</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Primeiro Review</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Primeiro Plano</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Admin</th>
                 </tr>
-            </thead>
-            <tbody>
-                @foreach($users as $user)
-                    <tr>
-                        <td>{{ $user->name }}</td>
-                        <td>{{ $user->email }}</td>
-                        <td>{{ $user->first_review_at?->format('d/m/Y') ?? '-' }}</td>
-                        <td>{{ $user->first_plan_at?->format('d/m/Y') ?? '-' }}</td>
-                        <td>{{ $user->is_admin ? 'Sim' : 'Nao' }}</td>
-                    </tr>
-                @endforeach
-            </tbody>
+            </x-slot:head>
+            @foreach($users as $user)
+                <tr>
+                    <td class="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">{{ $user->name }}</td>
+                    <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{{ $user->email }}</td>
+                    <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{{ $user->first_review_at?->format('d/m/Y') ?? '-' }}</td>
+                    <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{{ $user->first_plan_at?->format('d/m/Y') ?? '-' }}</td>
+                    <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{{ $user->is_admin ? 'Sim' : 'Nao' }}</td>
+                </tr>
+            @endforeach
         </x-table>
-    </x-section>
-</x-layouts.app>
+
+        <div class="mt-4">
+            {{ $users->links() }}
+        </div>
+</x-section>
 ```
 
 **Pontos importantes:**

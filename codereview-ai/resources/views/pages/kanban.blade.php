@@ -43,8 +43,7 @@ new class extends Component
 }
 ?>
 
-<x-layouts.app>
-    <div>
+<div>
         <h1>Kanban de Melhorias</h1>
 
         <div class="grid grid-cols-3 gap-4">
@@ -81,5 +80,4 @@ new class extends Component
                 @endforeach
             </div>
         </div>
-    </div>
-</x-layouts.app>
+</div>

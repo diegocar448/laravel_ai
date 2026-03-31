@@ -9,10 +9,13 @@
       "Bash(./vendor/bin/sail ps:*)",
       "Bash(./vendor/bin/sail logs:*)",
       "Bash(./vendor/bin/sail exec:*)",
-      "Read(//home/diegocar448/.ssh/**)"
+      "Read(//home/diegocar448/.ssh/**)",
+      "Bash(grep -r \"Route::livewire\\\\|livewire.*route\\\\|macro.*livewire\" vendor/livewire/ --include=*.php -l)",
+      "Bash(wc -l storage/framework/views/*.php)"
     ],
     "additionalDirectories": [
-      "/home/diegocar448/projects/laravel_ai"
+      "/home/diegocar448/projects/laravel_ai",
+      "/home/diegocar448/projects/laravel_ai/codereview-ai/storage/framework/views"
     ]
   }
 }

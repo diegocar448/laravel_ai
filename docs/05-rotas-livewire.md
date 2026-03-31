@@ -76,7 +76,80 @@ new class extends Component
 
 ---
 
-## Passo 1 — Criar o arquivo de rotas
+## Passo 1 — Configurar o Volt no AppServiceProvider
+
+O Livewire Volt precisa saber **onde** procurar componentes single-file. Sem essa configuracao, ao acessar qualquer pagina voce vera o erro:
+
+```
+Unable to find component: [pages.auth.register]
+```
+
+Edite `app/Providers/AppServiceProvider.php`:
+
+```php
+<?php
+
+namespace App\Providers;
+
+use Illuminate\Support\ServiceProvider;
+use Livewire\Volt\Volt;
+
+class AppServiceProvider extends ServiceProvider
+{
+    /**
+     * Register any application services.
+     */
+    public function register(): void
+    {
+        //
+    }
+
+    /**
+     * Bootstrap any application services.
+     */
+    public function boot(): void
+    {
+        Volt::mount([
+            resource_path('views'),
+        ]);
+    }
+}
+```
+
+**Pontos importantes:**
+- `Volt::mount()` — registra os diretorios onde o Volt deve buscar componentes single-file
+- `resource_path('views')` — o Volt busca a partir de `resources/views/`. Como as rotas usam `pages.home`, o Volt traduz para `resources/views/pages/home.blade.php`
+- **Importante:** se voce usar `resource_path('views/pages')`, o Volt procuraria em `views/pages/pages/home.blade.php` (duplicando "pages") e daria erro `Unable to find component`
+- Sem isso, `Route::livewire('/', 'pages.home')` nao encontra o componente
+
+```bash
+cd ~/laravel_ai
+git add .
+git commit -m "feat: configure Volt mount in AppServiceProvider"
+```
+
+---
+
+### Como funciona o layout em paginas Volt
+
+Antes de criar as paginas, entenda como o layout e aplicado:
+
+1. **`Route::livewire()` aplica automaticamente o layout `layouts::app`** — voce **nao** precisa (e nem deve) envolver o template com `<x-layouts::app>`. O conteudo do template e injetado no `{{ $slot }}` do layout automaticamente.
+
+2. **Para usar um layout diferente** (como `layouts::guest` para login/registro), adicione o atributo `#[Layout('layouts::guest')]` na classe do componente e importe `use Livewire\Attributes\Layout;`. O template continua sem tag de layout.
+
+3. **NUNCA use `<x-layouts::app>` ou `<x-layouts::guest>` dentro do template Volt** — isso causa **double layout** (o layout e renderizado duas vezes, quebrando o HTML).
+
+**Resumo:**
+
+| Situacao | O que fazer no PHP | O que fazer no template |
+|----------|-------------------|------------------------|
+| Layout padrao (`layouts::app`) | Nada (automatico) | Apenas o conteudo, sem `<x-layouts::app>` |
+| Layout alternativo (`layouts::guest`) | Adicionar `use Livewire\Attributes\Layout;` e `#[Layout('layouts::guest')]` | Apenas o conteudo, sem `<x-layouts::guest>` |
+
+---
+
+## Passo 2 — Criar o arquivo de rotas
 
 Edite `routes/web.php` e substitua todo o conteudo:
 
@@ -136,7 +209,7 @@ git commit -m "feat: add routes/web.php with Livewire Volt routes"
 
 ---
 
-## Passo 2 — Criar os diretorios das paginas
+## Passo 3 — Criar os diretorios das paginas
 
 Antes de criar os arquivos Blade, precisamos dos diretorios:
 
@@ -150,7 +223,7 @@ mkdir -p resources/views/pages/design-system
 
 ---
 
-## Passo 3 — Criar a pagina Home
+## Passo 4 — Criar a pagina Home
 
 A pagina Home lista os projetos do usuario e tem o formulario para criar novos projetos.
 
@@ -183,39 +256,37 @@ new class extends Component
 }
 ?>
 
-<x-layouts.app>
-    <div>
-        <h1>Meus Projetos</h1>
+<div>
+    <h1>Meus Projetos</h1>
 
-        @foreach($projects as $project)
-            <x-card>
-                <x-card.header>
-                    {{ $project->name }}
-                    <span class="text-sm text-gray-500">{{ $project->language }}</span>
-                </x-card.header>
-                <x-card.body>
-                    <code>{{ Str::limit($project->code_snippet, 200) }}</code>
-                </x-card.body>
-            </x-card>
-        @endforeach
+    @foreach($projects as $project)
+        <x-card>
+            <x-card.header>
+                {{ $project->name }}
+                <span class="text-sm text-gray-500">{{ $project->language }}</span>
+            </x-card.header>
+            <x-card.body>
+                <code>{{ Str::limit($project->code_snippet, 200) }}</code>
+            </x-card.body>
+        </x-card>
+    @endforeach
 
-        <form wire:submit="save">
-            <x-form.input wire:model="form.name" label="Nome do projeto" />
-            <x-form.select wire:model="form.language" label="Linguagem" :options="[
-                'php' => 'PHP',
-                'javascript' => 'JavaScript',
-                'python' => 'Python',
-                'typescript' => 'TypeScript',
-                'go' => 'Go',
-                'rust' => 'Rust',
-                'java' => 'Java',
-            ]" />
-            <x-form.textarea wire:model="form.code_snippet" label="Cole seu codigo aqui" rows="15" />
-            <x-form.input wire:model="form.repository_url" label="URL do repositorio (opcional)" />
-            <x-button type="submit">Enviar para analise</x-button>
-        </form>
-    </div>
-</x-layouts.app>
+    <form wire:submit="save">
+        <x-form.input wire:model="form.name" label="Nome do projeto" />
+        <x-form.select wire:model="form.language" label="Linguagem" :options="[
+            'php' => 'PHP',
+            'javascript' => 'JavaScript',
+            'python' => 'Python',
+            'typescript' => 'TypeScript',
+            'go' => 'Go',
+            'rust' => 'Rust',
+            'java' => 'Java',
+        ]" />
+        <x-form.textarea wire:model="form.code_snippet" label="Cole seu codigo aqui" rows="15" />
+        <x-form.input wire:model="form.repository_url" label="URL do repositorio (opcional)" />
+        <x-button type="submit">Enviar para analise</x-button>
+    </form>
+</div>
 ```
 
 **O que esta acontecendo:**
@@ -226,7 +297,7 @@ new class extends Component
 
 ---
 
-## Passo 4 — Criar a pagina Kanban
+## Passo 5 — Criar a pagina Kanban
 
 A pagina mais complexa do projeto. Usa Alpine.js para drag-and-drop e Livewire para persistir mudancas.
 
@@ -278,46 +349,44 @@ new class extends Component
 }
 ?>
 
-<x-layouts.app>
-    <div>
-        <h1>Kanban de Melhorias</h1>
+<div>
+    <h1>Kanban de Melhorias</h1>
 
-        <div class="grid grid-cols-3 gap-4">
-            {{-- Coluna ToDo --}}
-            <div>
-                <h2>ToDo</h2>
-                @foreach($todo as $item)
-                    <x-card>
-                        <x-card.header>{{ $item->title }}</x-card.header>
-                        <x-card.body>{{ $item->description }}</x-card.body>
-                    </x-card>
-                @endforeach
-            </div>
+    <div class="grid grid-cols-3 gap-4">
+        {{-- Coluna ToDo --}}
+        <div>
+            <h2>ToDo</h2>
+            @foreach($todo as $item)
+                <x-card>
+                    <x-card.header>{{ $item->title }}</x-card.header>
+                    <x-card.body>{{ $item->description }}</x-card.body>
+                </x-card>
+            @endforeach
+        </div>
 
-            {{-- Coluna InProgress --}}
-            <div>
-                <h2>In Progress</h2>
-                @foreach($inProgress as $item)
-                    <x-card>
-                        <x-card.header>{{ $item->title }}</x-card.header>
-                        <x-card.body>{{ $item->description }}</x-card.body>
-                    </x-card>
-                @endforeach
-            </div>
+        {{-- Coluna InProgress --}}
+        <div>
+            <h2>In Progress</h2>
+            @foreach($inProgress as $item)
+                <x-card>
+                    <x-card.header>{{ $item->title }}</x-card.header>
+                    <x-card.body>{{ $item->description }}</x-card.body>
+                </x-card>
+            @endforeach
+        </div>
 
-            {{-- Coluna Done --}}
-            <div>
-                <h2>Done</h2>
-                @foreach($done as $item)
-                    <x-card>
-                        <x-card.header>{{ $item->title }}</x-card.header>
-                        <x-card.body>{{ $item->description }}</x-card.body>
-                    </x-card>
-                @endforeach
-            </div>
+        {{-- Coluna Done --}}
+        <div>
+            <h2>Done</h2>
+            @foreach($done as $item)
+                <x-card>
+                    <x-card.header>{{ $item->title }}</x-card.header>
+                    <x-card.body>{{ $item->description }}</x-card.body>
+                </x-card>
+            @endforeach
         </div>
     </div>
-</x-layouts.app>
+</div>
 ```
 
 **Estrutura visual do Kanban:**
@@ -348,7 +417,7 @@ git commit -m "feat: add home and kanban Volt pages"
 
 ---
 
-## Passo 5 — Criar a pagina Project Show
+## Passo 6 — Criar a pagina Project Show
 
 Crie `resources/views/pages/projects/show.blade.php`:
 
@@ -386,59 +455,57 @@ new class extends Component
 }
 ?>
 
-<x-layouts.app>
+<div>
+    <h1>{{ $project->name }}</h1>
+    <span class="text-sm text-gray-500">{{ $project->language }}</span>
+    <span class="text-sm">{{ $project->status->name }}</span>
+
     <div>
-        <h1>{{ $project->name }}</h1>
-        <span class="text-sm text-gray-500">{{ $project->language }}</span>
-        <span class="text-sm">{{ $project->status->name }}</span>
-
-        <div>
-            <h2>Codigo</h2>
-            <pre><code>{{ $project->code_snippet }}</code></pre>
-        </div>
-
-        @if($project->codeReview)
-            <div>
-                <h2>Resultado da Analise</h2>
-                <p>{{ $project->codeReview->summary }}</p>
-
-                @foreach($project->codeReview->findings as $finding)
-                    <x-card>
-                        <x-card.header>
-                            {{ $finding->pillar->name }} — {{ $finding->type->name }}
-                            <span class="text-sm">{{ $finding->severity }}</span>
-                        </x-card.header>
-                        <x-card.body>{{ $finding->description }}</x-card.body>
-                    </x-card>
-                @endforeach
-            </div>
-        @else
-            <form wire:submit="requestReview">
-                <x-button type="submit">
-                    <span wire:loading.remove>Solicitar Analise IA</span>
-                    <span wire:loading>Analisando...</span>
-                </x-button>
-            </form>
-        @endif
-
-        @if($project->improvements->count())
-            <div>
-                <h2>Melhorias</h2>
-                @foreach($project->improvements as $improvement)
-                    <x-card>
-                        <x-card.header>{{ $improvement->title }}</x-card.header>
-                        <x-card.body>{{ $improvement->description }}</x-card.body>
-                    </x-card>
-                @endforeach
-            </div>
-        @endif
+        <h2>Codigo</h2>
+        <pre><code>{{ $project->code_snippet }}</code></pre>
     </div>
-</x-layouts.app>
+
+    @if($project->codeReview)
+        <div>
+            <h2>Resultado da Analise</h2>
+            <p>{{ $project->codeReview->summary }}</p>
+
+            @foreach($project->codeReview->findings as $finding)
+                <x-card>
+                    <x-card.header>
+                        {{ $finding->pillar->name }} — {{ $finding->type->name }}
+                        <span class="text-sm">{{ $finding->severity }}</span>
+                    </x-card.header>
+                    <x-card.body>{{ $finding->description }}</x-card.body>
+                </x-card>
+            @endforeach
+        </div>
+    @else
+        <form wire:submit="requestReview">
+            <x-button type="submit">
+                <span wire:loading.remove>Solicitar Analise IA</span>
+                <span wire:loading>Analisando...</span>
+            </x-button>
+        </form>
+    @endif
+
+    @if($project->improvements->count())
+        <div>
+            <h2>Melhorias</h2>
+            @foreach($project->improvements as $improvement)
+                <x-card>
+                    <x-card.header>{{ $improvement->title }}</x-card.header>
+                    <x-card.body>{{ $improvement->description }}</x-card.body>
+                </x-card>
+            @endforeach
+        </div>
+    @endif
+</div>
 ```
 
 ---
 
-## Passo 6 — Criar a pagina Review Show
+## Passo 7 — Criar a pagina Review Show
 
 Crie `resources/views/pages/reviews/show.blade.php`:
 
@@ -468,38 +535,36 @@ new class extends Component
 }
 ?>
 
-<x-layouts.app>
-    <div>
-        <h1>Review: {{ $review->project->name }}</h1>
-        <span class="text-sm">{{ $review->status->name }}</span>
+<div>
+    <h1>Review: {{ $review->project->name }}</h1>
+    <span class="text-sm">{{ $review->status->name }}</span>
 
-        @if($review->summary)
-            <div>
-                <h2>Resumo</h2>
-                <p>{{ $review->summary }}</p>
-            </div>
-        @endif
-
+    @if($review->summary)
         <div>
-            <h2>Findings</h2>
-            @foreach($review->findings as $finding)
-                <x-card>
-                    <x-card.header>
-                        {{ $finding->pillar->name }} — {{ $finding->type->name }}
-                        <span class="text-sm">{{ $finding->severity }}</span>
-                    </x-card.header>
-                    <x-card.body>{{ $finding->description }}</x-card.body>
-                </x-card>
-            @endforeach
+            <h2>Resumo</h2>
+            <p>{{ $review->summary }}</p>
         </div>
+    @endif
 
-        <div wire:poll.5s>
-            @if($review->status->name === 'Pending')
-                <p>Analise em andamento... atualizando automaticamente.</p>
-            @endif
-        </div>
+    <div>
+        <h2>Findings</h2>
+        @foreach($review->findings as $finding)
+            <x-card>
+                <x-card.header>
+                    {{ $finding->pillar->name }} — {{ $finding->type->name }}
+                    <span class="text-sm">{{ $finding->severity }}</span>
+                </x-card.header>
+                <x-card.body>{{ $finding->description }}</x-card.body>
+            </x-card>
+        @endforeach
     </div>
-</x-layouts.app>
+
+    <div wire:poll.5s>
+        @if($review->status->name === 'Pending')
+            <p>Analise em andamento... atualizando automaticamente.</p>
+        @endif
+    </div>
+</div>
 ```
 
 **Diretivas wire: usadas neste capitulo:**
@@ -541,7 +606,7 @@ git commit -m "feat: add project show and review show Volt pages"
 
 ---
 
-## Passo 7 — Criar o diretorio dos Form Objects
+## Passo 8 — Criar o diretorio dos Form Objects
 
 ```bash
 mkdir -p app/Livewire/Forms
@@ -549,7 +614,7 @@ mkdir -p app/Livewire/Forms
 
 ---
 
-## Passo 8 — Criar o ProjectForm
+## Passo 9 — Criar o ProjectForm
 
 Crie `app/Livewire/Forms/ProjectForm.php`:
 
@@ -614,7 +679,7 @@ public function save(): void
 
 ---
 
-## Passo 9 — Criar o LoginForm
+## Passo 10 — Criar o LoginForm
 
 Crie `app/Livewire/Forms/LoginForm.php`:
 
@@ -658,7 +723,7 @@ class LoginForm extends Form
 
 ---
 
-## Passo 10 — Criar o RegisterForm
+## Passo 11 — Criar o RegisterForm
 
 Crie `app/Livewire/Forms/RegisterForm.php`:
 
@@ -714,7 +779,7 @@ git commit -m "feat: add LoginForm and RegisterForm objects"
 
 ---
 
-## Passo 11 — Criar o CodeReviewForm
+## Passo 12 — Criar o CodeReviewForm
 
 Crie `app/Livewire/Forms/CodeReviewForm.php`:
 
@@ -751,9 +816,9 @@ class CodeReviewForm extends Form
 
 ---
 
-## Passo 12 — Criar as paginas de autenticacao
+## Passo 13 — Criar as paginas de autenticacao
 
-### 12.1 — Login
+### 13.1 — Login
 
 Crie `resources/views/pages/auth/login.blade.php`:
 
@@ -762,8 +827,10 @@ Crie `resources/views/pages/auth/login.blade.php`:
 // resources/views/pages/auth/login.blade.php
 
 use Livewire\Volt\Component;
+use Livewire\Attributes\Layout;
 use App\Livewire\Forms\LoginForm;
 
+#[Layout('layouts::guest')]
 new class extends Component
 {
     public LoginForm $form;
@@ -776,28 +843,26 @@ new class extends Component
 }
 ?>
 
-<x-layouts.guest>
-    <div>
-        <h1>Login</h1>
+<div>
+    <h1>Login</h1>
 
-        <form wire:submit="login">
-            <x-form.input wire:model="form.email" label="Email" type="email" />
-            <x-form.input wire:model="form.password" label="Senha" type="password" />
+    <form wire:submit="login">
+        <x-form.input wire:model="form.email" label="Email" type="email" />
+        <x-form.input wire:model="form.password" label="Senha" type="password" />
 
-            <label>
-                <input type="checkbox" wire:model="form.remember">
-                Lembrar de mim
-            </label>
+        <label>
+            <input type="checkbox" wire:model="form.remember">
+            Lembrar de mim
+        </label>
 
-            <x-button type="submit">Entrar</x-button>
-        </form>
+        <x-button type="submit">Entrar</x-button>
+    </form>
 
-        <p>Nao tem conta? <a href="{{ route('register') }}">Registre-se</a></p>
-    </div>
-</x-layouts.guest>
+    <p>Nao tem conta? <a href="{{ route('register') }}">Registre-se</a></p>
+</div>
 ```
 
-### 12.2 — Register
+### 13.2 — Register
 
 Crie `resources/views/pages/auth/register.blade.php`:
 
@@ -806,8 +871,10 @@ Crie `resources/views/pages/auth/register.blade.php`:
 // resources/views/pages/auth/register.blade.php
 
 use Livewire\Volt\Component;
+use Livewire\Attributes\Layout;
 use App\Livewire\Forms\RegisterForm;
 
+#[Layout('layouts::guest')]
 new class extends Component
 {
     public RegisterForm $form;
@@ -820,22 +887,20 @@ new class extends Component
 }
 ?>
 
-<x-layouts.guest>
-    <div>
-        <h1>Criar Conta</h1>
+<div>
+    <h1>Criar Conta</h1>
 
-        <form wire:submit="register">
-            <x-form.input wire:model="form.name" label="Nome" />
-            <x-form.input wire:model="form.email" label="Email" type="email" />
-            <x-form.input wire:model="form.password" label="Senha" type="password" />
-            <x-form.input wire:model="form.password_confirmation" label="Confirmar Senha" type="password" />
+    <form wire:submit="register">
+        <x-form.input wire:model="form.name" label="Nome" />
+        <x-form.input wire:model="form.email" label="Email" type="email" />
+        <x-form.input wire:model="form.password" label="Senha" type="password" />
+        <x-form.input wire:model="form.password_confirmation" label="Confirmar Senha" type="password" />
 
-            <x-button type="submit">Registrar</x-button>
-        </form>
+        <x-button type="submit">Registrar</x-button>
+    </form>
 
-        <p>Ja tem conta? <a href="{{ route('login') }}">Faca login</a></p>
-    </div>
-</x-layouts.guest>
+    <p>Ja tem conta? <a href="{{ route('login') }}">Faca login</a></p>
+</div>
 ```
 
 ```bash
@@ -847,7 +912,7 @@ git commit -m "feat: add CodeReviewForm and auth Volt pages (login, register)"
 
 ---
 
-## Passo 13 — Commitar e criar PR
+## Passo 14 — Commitar e criar PR
 
 ```bash
 cd ~/laravel_ai

@@ -9,14 +9,17 @@ Route::middleware('auth')->group(function () {
     Route::livewire('/project/{project}', 'pages.projects.show')->name('project');
     Route::livewire('/review/{codeReview}', 'pages.reviews.show')->name('review');
 
-    // Admin
+    // Admin — so is_admin = true
     Route::livewire('/admin/users', 'pages.admin.users')
         ->middleware('admin')
         ->name('admin.users');
 
-    // Logout
+    // Logout (mais seguro: invalida sessao + regenera CSRF token)
     Route::post('/logout', function () {
         auth()->logout();
+        request()->session()->invalidate();
+        request()->session()->regenerateToken();
+
         return redirect('/login');
     })->name('logout');
 });

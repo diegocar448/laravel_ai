@@ -438,8 +438,8 @@ sail artisan vendor:publish --provider="Laravel\Ai\AiServiceProvider"
 # Instalar pgvector PHP client (para busca vetorial)
 sail composer require pgvector/pgvector
 
-# Instalar Livewire 4.2 (UI reativa)
-sail composer require livewire/livewire
+# Instalar Livewire 4.2 (UI reativa) + Volt (componentes single-file)
+sail composer require livewire/livewire livewire/volt
 
 # Instalar dependencias de dev
 sail composer require --dev pestphp/pest laravel/pail
@@ -548,15 +548,15 @@ sail composer require pgvector/pgvector
 **Por que:** RAG precisa de busca vetorial (embeddings) em producao.
 **Capitulo:** 09 (RAG com pgvector).
 
-### 3. Livewire (v4.2+)
+### 3. Livewire (v4.2+) + Volt
 
 ```bash
-sail composer require livewire/livewire
+sail composer require livewire/livewire livewire/volt
 ```
 
-**O que e:** Framework reativo, componentes single-file (Volt).
-**Por que:** UI interativa para Kanban, forms, real-time updates.
-**Capitulo:** 05-06.
+**O que e:** Framework reativo + Volt para componentes single-file (PHP + Blade no mesmo arquivo).
+**Por que:** UI interativa para Kanban, forms, real-time updates. Volt permite definir paginas inteiras em um unico `.blade.php`.
+**Capitulo:** 05-07.
 
 ---
 

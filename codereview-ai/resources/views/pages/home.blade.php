@@ -24,8 +24,7 @@ new class extends Component
 }
 ?>
 
-<x-layouts.app>
-    <div>
+<div>
         <h1>Meus Projetos</h1>
 
         @foreach($projects as $project)
@@ -55,5 +54,4 @@ new class extends Component
             <x-form.input wire:model="form.repository_url" label="URL do repositorio (opcional)" />
             <x-button type="submit">Enviar para analise</x-button>
         </form>
-    </div>
-</x-layouts.app>
+</div>
