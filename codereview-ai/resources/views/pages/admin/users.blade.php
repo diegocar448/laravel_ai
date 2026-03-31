@@ -14,8 +14,7 @@ new class extends Component
 }
 ?>
 
-<x-layouts::app>
-    <x-section title="Usuarios" description="Lista de todos os usuarios do sistema">
+<x-section title="Usuarios" description="Lista de todos os usuarios do sistema">
         <x-table>
             <x-slot:head>
                 <tr>
@@ -40,5 +39,4 @@ new class extends Component
         <div class="mt-4">
             {{ $users->links() }}
         </div>
-    </x-section>
-</x-layouts::app>
+</x-section>

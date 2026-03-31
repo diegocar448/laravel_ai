@@ -22,7 +22,7 @@ class RegisterForm extends Form
         ];
     }
 
-    public function register(): void
+    public function store(): void
     {
         $this->validate();
 

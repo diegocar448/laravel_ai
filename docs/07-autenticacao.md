@@ -135,7 +135,7 @@ class LoginForm extends Form
 
         if (!Auth::attempt(['email' => $this->email, 'password' => $this->password])) {
             throw ValidationException::withMessages([
-                'email' => 'As credenciais fornecidas nao correspondem aos nossos registros.',
+                'form.email' => 'As credenciais fornecidas nao correspondem aos nossos registros.',
             ]);
         }
 
@@ -172,8 +172,10 @@ Crie `resources/views/pages/auth/register.blade.php`:
 <?php
 
 use Livewire\Volt\Component;
+use Livewire\Attributes\Layout;
 use App\Livewire\Forms\RegisterForm;
 
+#[Layout('layouts::guest')]
 new class extends Component
 {
     public RegisterForm $form;
@@ -186,26 +188,27 @@ new class extends Component
 }
 ?>
 
-<x-layouts::guest>
-    <x-card class="max-w-md mx-auto mt-20">
-        <x-card.header>
-            <h1 class="text-2xl font-bold">Criar conta</h1>
-        </x-card.header>
-        <x-card.body>
-            <form wire:submit="register" class="space-y-4">
-                <x-form.input wire:model="form.name" label="Nome" />
-                <x-form.input wire:model="form.email" type="email" label="E-mail" />
-                <x-form.input wire:model="form.password" type="password" label="Senha" />
-                <x-form.input wire:model="form.password_confirmation" type="password" label="Confirmar senha" />
-                <x-button type="submit" class="w-full">Cadastrar</x-button>
-            </form>
+<x-card class="max-w-md mx-auto mt-20">
+    <x-card.header>
+        <h1 class="text-2xl font-bold">Criar conta</h1>
+    </x-card.header>
+    <x-card.body>
+        <form wire:submit="register" class="space-y-4">
+            <x-form.input wire:model="form.name" label="Nome" />
+            <x-form.input wire:model="form.email" type="email" label="E-mail" />
+            <x-form.input wire:model="form.password" type="password" label="Senha" />
+            <x-form.input wire:model="form.password_confirmation" type="password" label="Confirmar senha" />
+            <x-button type="submit" class="w-full" wire:loading.attr="disabled">
+                <span wire:loading.remove>Cadastrar</span>
+                <span wire:loading>Cadastrando...</span>
+            </x-button>
+        </form>
 
-            <p class="mt-4 text-center text-sm text-gray-500">
-                Ja tem conta? <a href="{{ route('login') }}" class="text-indigo-600">Entrar</a>
-            </p>
-        </x-card.body>
-    </x-card>
-</x-layouts::guest>
+        <p class="mt-4 text-center text-sm text-gray-500">
+            Ja tem conta? <a href="{{ route('login') }}" class="text-indigo-600">Entrar</a>
+        </p>
+    </x-card.body>
+</x-card>
 ```
 
 **Como funciona:**
@@ -224,8 +227,10 @@ Crie `resources/views/pages/auth/login.blade.php`:
 <?php
 
 use Livewire\Volt\Component;
+use Livewire\Attributes\Layout;
 use App\Livewire\Forms\LoginForm;
 
+#[Layout('layouts::guest')]
 new class extends Component
 {
     public LoginForm $form;
@@ -238,24 +243,25 @@ new class extends Component
 }
 ?>
 
-<x-layouts::guest>
-    <x-card class="max-w-md mx-auto mt-20">
-        <x-card.header>
-            <h1 class="text-2xl font-bold">Entrar</h1>
-        </x-card.header>
-        <x-card.body>
-            <form wire:submit="login" class="space-y-4">
-                <x-form.input wire:model="form.email" type="email" label="E-mail" />
-                <x-form.input wire:model="form.password" type="password" label="Senha" />
-                <x-button type="submit" class="w-full">Entrar</x-button>
-            </form>
+<x-card class="max-w-md mx-auto mt-20">
+    <x-card.header>
+        <h1 class="text-2xl font-bold">Entrar</h1>
+    </x-card.header>
+    <x-card.body>
+        <form wire:submit="login" class="space-y-4">
+            <x-form.input wire:model="form.email" type="email" label="E-mail" />
+            <x-form.input wire:model="form.password" type="password" label="Senha" />
+            <x-button type="submit" class="w-full" wire:loading.attr="disabled">
+                <span wire:loading.remove>Entrar</span>
+                <span wire:loading>Entrando...</span>
+            </x-button>
+        </form>
 
-            <p class="mt-4 text-center text-sm text-gray-500">
-                Nao tem conta? <a href="{{ route('register') }}" class="text-indigo-600">Cadastre-se</a>
-            </p>
-        </x-card.body>
-    </x-card>
-</x-layouts::guest>
+        <p class="mt-4 text-center text-sm text-gray-500">
+            Nao tem conta? <a href="{{ route('register') }}" class="text-indigo-600">Cadastre-se</a>
+        </p>
+    </x-card.body>
+</x-card>
 ```
 
 ```bash
@@ -435,8 +441,7 @@ new class extends Component
 }
 ?>
 
-<x-layouts::app>
-    <x-section title="Usuarios" description="Lista de todos os usuarios do sistema">
+<x-section title="Usuarios" description="Lista de todos os usuarios do sistema">
         <x-table>
             <x-slot:head>
                 <tr>
@@ -461,8 +466,7 @@ new class extends Component
         <div class="mt-4">
             {{ $users->links() }}
         </div>
-    </x-section>
-</x-layouts::app>
+</x-section>
 ```
 
 **Pontos importantes:**

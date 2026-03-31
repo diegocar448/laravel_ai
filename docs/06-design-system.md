@@ -224,9 +224,15 @@ Crie `resources/views/components/form/input.blade.php`:
     'placeholder' => '',
 ])
 
+@php
+    $wireModel = $attributes->wire('model')->value();
+    $errorKey = $name ?: $wireModel;
+    $inputId = $name ?: str_replace('.', '-', $wireModel);
+@endphp
+
 <div>
     @if($label)
-        <label for="{{ $name }}" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+        <label for="{{ $inputId }}" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             {{ $label }}
         </label>
     @endif
@@ -234,7 +240,7 @@ Crie `resources/views/components/form/input.blade.php`:
     <input
         type="{{ $type }}"
         name="{{ $name }}"
-        id="{{ $name }}"
+        id="{{ $inputId }}"
         placeholder="{{ $placeholder }}"
         {{ $attributes->merge([
             'class' => 'w-full rounded-lg border border-gray-300 dark:border-gray-600
@@ -248,7 +254,7 @@ Crie `resources/views/components/form/input.blade.php`:
         ]) }}
     />
 
-    @error($name)
+    @error($errorKey)
         <p class="mt-1 text-sm text-red-600 dark:text-red-400">{{ $message }}</p>
     @enderror
 </div>
@@ -863,11 +869,20 @@ mkdir -p resources/views/pages
 
 Crie `resources/views/pages/design-system.blade.php`:
 
-```html
-<x-layouts::guest>
-    <x-slot:title>Design System — CodeReview AI</x-slot:title>
+```php
+<?php
 
-    <div class="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
+use Livewire\Volt\Component;
+use Livewire\Attributes\Layout;
+
+#[Layout('layouts::guest')]
+new class extends Component
+{
+    //
+}
+?>
+
+<div class="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
         <div class="max-w-5xl mx-auto">
 
             <!-- Header -->
@@ -952,7 +967,7 @@ Crie `resources/views/pages/design-system.blade.php`:
                                 'rust' => 'Rust',
                             ]" />
                             <x-form.textarea label="Descricao" name="description" placeholder="Descreva seu projeto..." />
-                            <x-form.code-editor label="Codigo" name="code" language="php" placeholder="<?php echo 'Hello World';" />
+                            <x-form.code-editor label="Codigo" name="code" language="php" placeholder="echo 'Hello World';" />
                         </div>
                     </x-card.body>
                 </x-card>
@@ -1066,7 +1081,7 @@ public function charge(User $user, float $amount): bool
 
         </div>
     </div>
-</x-layouts::guest>
+</div>
 ```
 
 ```bash

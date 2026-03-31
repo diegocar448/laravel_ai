@@ -25,7 +25,7 @@ class LoginForm extends Form
 
         if (!Auth::attempt(['email' => $this->email, 'password' => $this->password])) {
             throw ValidationException::withMessages([
-                'email' => 'As credenciais fornecidas nao correspondem aos nossos registros.',
+                'form.email' => 'As credenciais fornecidas nao correspondem aos nossos registros.',
             ]);
         }
 

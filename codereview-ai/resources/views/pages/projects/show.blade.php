@@ -31,8 +31,7 @@ new class extends Component
 }
 ?>
 
-<x-layouts::app>
-    <div>
+<div>
         <h1>{{ $project->name }}</h1>
         <span class="text-sm text-gray-500">{{ $project->language }}</span>
         <span class="text-sm">{{ $project->status->name }}</span>
@@ -77,5 +76,4 @@ new class extends Component
                 @endforeach
             </div>
         @endif
-    </div>
-</x-layouts::app>
+</div>

@@ -1,16 +1,16 @@
 <?php
 
 use Livewire\Volt\Component;
+use Livewire\Attributes\Layout;
 
-new class extends Component
+new #[Layout('layouts::guest')] class extends Component
 {
     //
-}; ?>
+} ?>
 
-<x-layouts::guest>
-    <x-slot:title>Design System — CodeReview AI</x-slot:title>
+<x-slot:title>Design System — CodeReview AI</x-slot:title>
 
-    <div class="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
+<div class="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
         <div class="max-w-5xl mx-auto">
 
             <!-- Header -->
@@ -95,7 +95,7 @@ new class extends Component
                                 'rust' => 'Rust',
                             ]" />
                             <x-form.textarea label="Descricao" name="description" placeholder="Descreva seu projeto..." />
-                            <x-form.code-editor label="Codigo" name="code" language="php" placeholder="<?php echo 'Hello World';" />
+                            <x-form.code-editor label="Codigo" name="code" language="php" placeholder="echo 'Hello World';" />
                         </div>
                     </x-card.body>
                 </x-card>
@@ -208,5 +208,4 @@ public function charge(User $user, float $amount): bool
             </x-section>
 
         </div>
-    </div>
-</x-layouts::guest>
+</div>
