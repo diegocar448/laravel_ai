@@ -109,6 +109,17 @@ Se o arquivo nao existir, publique:
 
 ```bash
 sail artisan vendor:publish --provider="Laravel\Ai\AiServiceProvider"
+```
+
+> **Atencao:** O `vendor:publish` cria uma nova migration `create_agent_conversations_table`. Se voce ja executou o cap 07, essa tabela ja existe no banco — **delete o arquivo de migration duplicado** antes de rodar o migrate:
+> ```bash
+> # Verifique se ja existe uma migration anterior
+> ls database/migrations/ | grep agent_conversations
+> # Se houver dois arquivos, delete o mais recente (data maior)
+> rm database/migrations/YYYY_MM_DD_HHMMSS_create_agent_conversations_table.php
+> ```
+
+```bash
 sail artisan migrate
 ```
 
