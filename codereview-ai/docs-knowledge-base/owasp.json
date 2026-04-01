@@ -1,0 +1,17 @@
+[
+    {
+        "title": "OWASP A03:2021 - Injection",
+        "content": "OWASP A03:2021 Injection. An application is vulnerable when user-supplied data is not validated, filtered, or sanitized. SQL injection occurs when untrusted data is sent to an interpreter as part of a command or query. Prevention: Use parameterized queries, stored procedures, input validation, and escaping.",
+        "category": "security"
+    },
+    {
+        "title": "OWASP A01:2021 - Broken Access Control",
+        "content": "OWASP A01:2021 Broken Access Control. Access control enforces policy such that users cannot act outside of their intended permissions. Failures lead to unauthorized information disclosure, modification, or destruction. Prevention: Deny by default, implement access control mechanisms, enforce record ownership.",
+        "category": "security"
+    },
+    {
+        "title": "OWASP A07:2021 - Cross-Site Scripting (XSS)",
+        "content": "OWASP A07:2021 XSS. Cross-site scripting flaws occur when an application includes untrusted data in a new web page without proper validation or escaping. XSS allows attackers to execute scripts in the victim's browser. Prevention: Escape output, use Content Security Policy, validate input on server side.",
+        "category": "security"
+    }
+]

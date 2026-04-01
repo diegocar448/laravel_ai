@@ -1,0 +1,17 @@
+[
+    {
+        "title": "Laravel - Eloquent N+1 Problem",
+        "content": "The N+1 query problem occurs when you load a collection and then access a relationship on each item without eager loading. Use with() or load() to eager load relationships. Example: User::with('posts')->get() instead of User::all() then accessing $user->posts in a loop.",
+        "category": "performance"
+    },
+    {
+        "title": "Laravel - Service Container and Dependency Injection",
+        "content": "Laravel's service container is a powerful tool for managing class dependencies and performing dependency injection. Instead of creating instances manually with new, bind interfaces to implementations in a ServiceProvider. This makes code testable and follows the Dependency Inversion Principle.",
+        "category": "architecture"
+    },
+    {
+        "title": "Laravel - Query Optimization with Database Indexing",
+        "content": "Always add database indexes for columns used in WHERE, ORDER BY, and JOIN clauses. Use composite indexes for queries filtering on multiple columns. Monitor slow queries with DB::listen() or Laravel Telescope. Use EXPLAIN to analyze query execution plans.",
+        "category": "performance"
+    }
+]
