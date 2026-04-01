@@ -189,6 +189,7 @@ class CodeAnalyst implements Agent, HasStructuredOutput
                 ->description('Score geral do codigo (0-100)')
                 ->required(),
             'priority_finding_ids' => $schema->array()
+                ->items($schema->integer())
                 ->description('IDs dos 3 findings mais criticos')
                 ->required(),
         ];
@@ -403,16 +404,19 @@ Edite o metodo `handle()` do `CodeAnalysisService` para adicionar failover:
 
 ```php
 // No metodo handle() do CodeAnalysisService, substitua o prompt() por:
+// O failover e configurado passando um array como provider (provider => model)
+// O SDK tenta cada provider na ordem ate um ter sucesso
 $response = (new CodeAnalyst($codeReview))->prompt(
     $this->buildContext($codeReview),
-    provider: Lab::Gemini,
-    model: 'gemini-2.5-flash',
-    failover: [
-        Lab::OpenAI => 'gpt-4o-mini',
-        Lab::Anthropic => 'claude-haiku-4-5-20251001',
+    provider: [
+        Lab::Gemini->value => 'gemini-2.5-flash',
+        Lab::OpenAI->value  => 'gpt-4o-mini',
+        Lab::Anthropic->value => 'claude-haiku-4-5-20251001',
     ],
 );
 ```
+
+> **Importante:** O SDK NAO tem um parametro `failover:`. O failover e feito passando um array de `[provider_string => model]` como valor do parametro `provider`. Use `Lab::Gemini->value` (string) como chave — enums nao podem ser usados diretamente como chaves de array PHP.
 
 **Fluxo de failover:**
 
@@ -430,7 +434,7 @@ $response = (new CodeAnalyst($codeReview))->prompt(
                  |-- Falhou? -> lanca excecao
 ```
 
-> **Nota:** Para usar failover, configure as API keys dos providers alternativos no `.env`. O failover e opcional — se voce so usa Gemini, pode omitir o parametro `failover`.
+> **Nota:** Para usar failover, configure as API keys dos providers alternativos no `.env`. Para uso simples com apenas Gemini (recomendado para comecar), use `provider: Lab::Gemini, model: 'gemini-2.5-flash'`.
 
 ```bash
 # Commitar
