@@ -750,10 +750,10 @@ class DocEmbedding extends Model
 use Pgvector\Laravel\Distance;
 
 // 1. Gerar embedding da query do usuario
-$queryVector = Ai::embeddings()
-    ->provider(Lab::Gemini)
-    ->model('text-embedding-004')
-    ->embed('Como evitar SQL Injection em Laravel?');
+$queryVector = Embeddings::for(['Como evitar SQL Injection em Laravel?'])
+    ->dimensions(768)
+    ->generate(Lab::Gemini, 'gemini-embedding-001')
+    ->first();
 
 // 2. Buscar os 5 documentos mais similares
 $docs = DocEmbedding::query()

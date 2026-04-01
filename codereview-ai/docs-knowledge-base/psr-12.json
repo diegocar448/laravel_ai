@@ -1,0 +1,17 @@
+[
+    {
+        "title": "PSR-12 - Methods Visibility",
+        "content": "PSR-12: Extended Coding Style Guide. Methods must declare visibility. All methods must have their visibility declared. Abstract and final declarations must precede the visibility declaration. Static declarations must come after the visibility declaration.",
+        "category": "architecture"
+    },
+    {
+        "title": "PSR-12 - Opening Braces",
+        "content": "PSR-12: Opening braces for classes and methods MUST go on the next line, and closing braces MUST go on the next line after the body. Opening braces for control structures MUST go on the same line, and closing braces MUST go on the next line after the body.",
+        "category": "architecture"
+    },
+    {
+        "title": "PSR-4 - Autoloading Standard",
+        "content": "PSR-4: Autoloading Standard. A fully qualified class name has the form \\Namespace\\ClassName. Each namespace must have a base directory. The subdirectory names must match the case of the sub-namespace names. Each class file must end with .php extension.",
+        "category": "architecture"
+    }
+]

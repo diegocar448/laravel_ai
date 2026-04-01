@@ -242,10 +242,10 @@ class SearchDocsKnowledgeBase implements Tool
     public function execute(array $parameters): string
     {
         // RAG: busca pgvector e retorna docs relevantes
-        $embedding = Ai::embeddings()
-            ->provider(Lab::Gemini)
-            ->model('text-embedding-004')
-            ->embed($parameters['query']);
+        $embedding = Embeddings::for([$parameters['query']])
+            ->dimensions(768)
+            ->generate(Lab::Gemini, 'gemini-embedding-001')
+            ->first();
 
         $docs = DocEmbedding::query()
             ->nearestNeighbors('embedding', $embedding, Distance::Cosine)

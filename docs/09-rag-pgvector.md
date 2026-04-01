@@ -188,7 +188,7 @@ use App\Models\DocEmbedding;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
 use Laravel\Ai\Enums\Lab;
-use Laravel\Ai\Facades\Ai;
+use Laravel\Ai\Embeddings;
 
 class ImportDocs extends Command
 {
@@ -236,17 +236,16 @@ class ImportDocs extends Command
             }
 
             // Gerar embedding via Ai::embeddings()
-            $result = Ai::embeddings()
-                ->provider(Lab::Gemini)
-                ->model('text-embedding-004')
-                ->embed($doc['content']);
+            $result = Embeddings::for([$doc['content']])
+                ->dimensions(768)
+                ->generate(Lab::Gemini, 'gemini-embedding-001');
 
             // Salvar no banco com o vetor
             DocEmbedding::create([
                 'source'    => $source,
                 'title'     => $doc['title'],
                 'content'   => $doc['content'],
-                'embedding' => $result[0]->embedding,
+                'embedding' => $result->first(),
                 'category'  => $doc['category'],
             ]);
 
@@ -354,48 +353,48 @@ Edite `app/Ai/Tools/SearchDocsKnowledgeBase.php`:
 namespace App\Ai\Tools;
 
 use App\Models\DocEmbedding;
+use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Ai\Contracts\Tool;
-use Laravel\Ai\Contracts\ToolSchema;
 use Laravel\Ai\Enums\Lab;
-use Laravel\Ai\Facades\Ai;
+use Laravel\Ai\Embeddings;
+use Laravel\Ai\Tools\Request;
 use Pgvector\Laravel\Distance;
 
 class SearchDocsKnowledgeBase implements Tool
 {
-    public function name(): string
-    {
-        return 'search_docs_knowledge_base';
-    }
-
     public function description(): string
     {
         return 'Search PSRs, OWASP guides and Laravel documentation by semantic similarity. '
             . 'Use this to find relevant documentation before making recommendations.';
     }
 
-    public function schema(): ToolSchema
+    public function schema(JsonSchema $schema): array
     {
-        return ToolSchema::make()
-            ->string('query', 'Search query describing what documentation to find')
-            ->string('category', 'Filter by category: architecture, performance, or security');
+        return [
+            'query' => $schema->string()
+                ->description('Search query describing what documentation to find')
+                ->required(),
+            'category' => $schema->string()
+                ->description('Filter by category: architecture, performance, or security'),
+        ];
     }
 
-    public function execute(array $parameters): string
+    public function handle(Request $request): string
     {
-        // 1. Converter a query em vetor via Ai::embeddings() com cache
-        $result = Ai::embeddings()
-            ->provider(Lab::Gemini)
-            ->model('text-embedding-004')
-            ->embed($parameters['query'], cache: true);
+        // 1. Converter a query em vetor com cache
+        $result = Embeddings::for([$request->string('query')])
+                ->cache()
+                ->dimensions(768)
+                ->generate(Lab::Gemini, 'gemini-embedding-001');
 
-        $queryVector = $result[0]->embedding;
+        $queryVector = $result->first();
 
         // 2. Buscar os 5 docs mais similares via pgvector
         $docsQuery = DocEmbedding::query()
             ->nearestNeighbors('embedding', $queryVector, Distance::Cosine);
 
-        if (isset($parameters['category'])) {
-            $docsQuery->where('category', $parameters['category']);
+        if ($request->has('category')) {
+            $docsQuery->where('category', $request->string('category'));
         }
 
         $docs = $docsQuery->take(5)->get();
@@ -414,10 +413,9 @@ class SearchDocsKnowledgeBase implements Tool
 
 **Como a Tool funciona:**
 
-1. **`name()`** — identificador usado pelo Agent no `tool_call`
-2. **`description()`** — o LLM le essa descricao para decidir quando chamar a Tool
-3. **`schema()`** — define os parametros que a IA pode passar (query + category)
-4. **`execute()`** — logica de busca: embedding da query -> busca pgvector -> retorna contexto
+1. **`description()`** — o LLM le essa descricao para decidir quando chamar a Tool
+2. **`schema(JsonSchema $schema)`** — define os parametros que a IA pode passar (query + category)
+3. **`handle(Request $request)`** — logica de busca: embedding da query -> busca pgvector -> retorna contexto
 
 **O operador `<=>` (cosine distance) do pgvector:**
 
@@ -437,7 +435,7 @@ LIMIT 5;
 
 **Cache de embeddings:**
 
-O parametro `cache: true` no `Ai::embeddings()` evita chamadas repetidas a API para a mesma query. Queries frequentes como "SQL injection" ou "N+1 query" serao resolvidas instantaneamente apos a primeira chamada.
+O metodo `->cache()` no `Embeddings::for()` evita chamadas repetidas a API para a mesma query. Queries frequentes como "SQL injection" ou "N+1 query" serao resolvidas instantaneamente apos a primeira chamada.
 
 ```bash
 # Commitar
@@ -448,67 +446,68 @@ git commit -m "feat: add SearchDocsKnowledgeBase RAG tool with pgvector"
 
 ---
 
-## Passo 6 — Verificar a busca semantica no Tinker
+## Passo 6 — Verificar a busca semantica
 
 Vamos testar o pipeline RAG completo: query -> embedding -> busca pgvector -> resultado.
 
-```bash
-sail artisan tinker
-```
+> **Importante:** Use `tinker --execute` para rodar o script completo de uma vez. O tinker interativo (psysh) perde variaveis entre sessoes e tem problemas com method chains em multiplas linhas.
 
-```php
-use App\Models\DocEmbedding;
-use Laravel\Ai\Facades\Ai;
+**Teste 1 — Busca semantica por query de seguranca:**
+
+```bash
+sail artisan tinker --execute="
+use Laravel\Ai\Embeddings;
 use Laravel\Ai\Enums\Lab;
 use Pgvector\Laravel\Distance;
+use App\Models\DocEmbedding;
 
-// 1. Gerar embedding de uma query de teste
-$result = Ai::embeddings()
-    ->provider(Lab::Gemini)
-    ->model('text-embedding-004')
-    ->embed('How to prevent SQL injection in PHP');
+\$result = Embeddings::for(['How to prevent SQL injection in PHP'])->dimensions(768)->generate(Lab::Gemini, 'gemini-embedding-001');
+\$queryVector = \$result->first();
+echo 'Dimensoes do vetor: ' . count(\$queryVector) . PHP_EOL;
 
-$queryVector = $result[0]->embedding;
-echo count($queryVector->toArray()); // 768
-
-// 2. Buscar documentos similares
-$docs = DocEmbedding::query()
-    ->nearestNeighbors('embedding', $queryVector, Distance::Cosine)
-    ->take(3)
-    ->get();
-
-// 3. Verificar resultados — OWASP A03 (Injection) deve aparecer primeiro
-$docs->each(fn ($doc) => dump("[{$doc->source}] {$doc->title}"));
-
-// Esperado (ordem pode variar):
-// "[owasp] OWASP A03:2021 - Injection"
-// "[owasp] OWASP A07:2021 - Cross-Site Scripting (XSS)"
-// "[laravel-best-practices] Laravel - Service Container..."
-
-// 4. Testar filtro por categoria
-$securityDocs = DocEmbedding::query()
-    ->nearestNeighbors('embedding', $queryVector, Distance::Cosine)
-    ->where('category', 'security')
-    ->take(3)
-    ->get();
-
-$securityDocs->each(fn ($doc) => dump("[{$doc->source}] {$doc->title}"));
-
-// Esperado: apenas documentos de security
-
-// 5. Testar a Tool diretamente
-$tool = new \App\Ai\Tools\SearchDocsKnowledgeBase;
-$resultado = $tool->execute([
-    'query' => 'coding style method visibility',
-    'category' => 'architecture',
-]);
-
-echo $resultado;
-// Deve retornar trechos de PSR-12 sobre visibility
-
-// Sair
-exit
+\$docs = DocEmbedding::query()->nearestNeighbors('embedding', \$queryVector, Distance::Cosine)->take(3)->get();
+foreach (\$docs as \$doc) { echo '[' . \$doc->source . '] ' . \$doc->title . PHP_EOL; }
+"
 ```
+
+Saida esperada:
+```
+Dimensoes do vetor: 768
+[owasp] OWASP A03:2021 - Injection
+[owasp] OWASP A07:2021 - Cross-Site Scripting (XSS)
+[laravel-best-practices] Laravel - Query Optimization with Database Indexing
+```
+
+**Teste 2 — Filtro por categoria:**
+
+```bash
+sail artisan tinker --execute="
+use Laravel\Ai\Embeddings;
+use Laravel\Ai\Enums\Lab;
+use Pgvector\Laravel\Distance;
+use App\Models\DocEmbedding;
+
+\$result = Embeddings::for(['How to prevent SQL injection in PHP'])->dimensions(768)->generate(Lab::Gemini, 'gemini-embedding-001');
+\$queryVector = \$result->first();
+
+\$docs = DocEmbedding::query()->nearestNeighbors('embedding', \$queryVector, Distance::Cosine)->where('category', 'security')->take(3)->get();
+foreach (\$docs as \$doc) { echo '[' . \$doc->source . '] ' . \$doc->title . PHP_EOL; }
+"
+```
+
+Saida esperada: apenas documentos de categoria `security`.
+
+**Teste 3 — Tool diretamente:**
+
+```bash
+sail artisan tinker --execute="
+\$tool = new \App\Ai\Tools\SearchDocsKnowledgeBase;
+\$request = new \Laravel\Ai\Tools\Request(['query' => 'coding style method visibility', 'category' => 'architecture']);
+echo \$tool->handle(\$request);
+"
+```
+
+Saida esperada: trechos de PSR-12 sobre visibility.
 
 > Se a busca retornou documentos relevantes para a query, o pipeline RAG esta funcionando corretamente.
 
@@ -553,7 +552,7 @@ class SecurityAnalyst implements Agent, HasTools
          | Tool Call: search_docs_knowledge_base
          v
 +--------------------+
-|  1. Ai::embeddings |  text-embedding-004
+|  1. Embeddings::for|  gemini-embedding-001
 |     gera vetor     |  -> [0.12, -0.34, ...]
 +--------+-----------+
          |
