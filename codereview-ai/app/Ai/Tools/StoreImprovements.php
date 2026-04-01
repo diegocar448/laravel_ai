@@ -2,36 +2,48 @@
 
 namespace App\Ai\Tools;
 
-use Illuminate\Contracts\JsonSchema\JsonSchema;
+use App\Models\Improvement;
+use App\Models\Project;
 use Laravel\Ai\Contracts\Tool;
-use Laravel\Ai\Tools\Request;
-use Stringable;
+use Laravel\Ai\Contracts\ToolSchema;
 
 class StoreImprovements implements Tool
 {
-    /**
-     * Get the description of the tool's purpose.
-     */
-    public function description(): Stringable|string
+    public function __construct(
+        private Project $project,
+    ) {}
+
+    public function name(): string
     {
-        return 'A description of the tool.';
+        return 'store_improvements';
     }
 
-    /**
-     * Execute the tool.
-     */
-    public function handle(Request $request): Stringable|string
+    public function description(): string
     {
-        //
+        return 'Persist the generated improvements to the database as a Kanban board.';
     }
 
-    /**
-     * Get the tool's schema definition.
-     */
-    public function schema(JsonSchema $schema): array
+    public function schema(): ToolSchema
     {
-        return [
-            'value' => $schema->string()->required(),
-        ];
+        return ToolSchema::make()
+            ->array('improvements', 'List of improvements to save');
+    }
+
+    public function execute(array $parameters): string
+    {
+        foreach ($parameters['improvements'] as $index => $data) {
+            Improvement::create([
+                'project_id' => $this->project->id,
+                'improvement_type_id' => $data['improvement_type_id'] ?? 1,
+                'improvement_step_id' => 1, // ToDo
+                'title' => $data['title'],
+                'description' => $data['description'] ?? null,
+                'file_path' => $data['file_path'] ?? null,
+                'priority' => $data['priority'] ?? 0,
+                'order' => $index,
+            ]);
+        }
+
+        return "Salvas " . count($parameters['improvements']) . " melhorias com sucesso.";
     }
 }
