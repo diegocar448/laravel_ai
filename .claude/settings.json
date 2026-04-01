@@ -13,10 +13,7 @@
       "Bash(grep -r \"Route::livewire\\\\|livewire.*route\\\\|macro.*livewire\" vendor/livewire/ --include=*.php -l)",
       "Bash(wc -l storage/framework/views/*.php)",
       "Skill(update-config)",
-      "Skill(update-config:*)",
-      "Bash(xargs ls:*)",
-      "Bash(find /home/diegocar448/projects/laravel_ai/codereview-ai/vendor/prism -name *.php)",
-      "Bash(find /home/diegocar448/projects/laravel_ai/codereview-ai/vendor -path */prism* -name *.php)"
+      "Skill(update-config:*)"
     ],
     "additionalDirectories": [
       "/home/diegocar448/projects/laravel_ai",

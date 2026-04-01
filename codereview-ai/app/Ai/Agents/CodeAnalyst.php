@@ -42,7 +42,6 @@ class CodeAnalyst implements Agent, HasStructuredOutput
                 ->description('Score geral do codigo (0-100)')
                 ->required(),
             'priority_finding_ids' => $schema->array()
-                ->items($schema->integer())
                 ->description('IDs dos 3 findings mais criticos')
                 ->required(),
         ];
