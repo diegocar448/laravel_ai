@@ -5,8 +5,8 @@ namespace App\Console\Commands;
 use App\Models\DocEmbedding;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
+use Laravel\Ai\Embeddings;
 use Laravel\Ai\Enums\Lab;
-use Laravel\Ai\Facades\Ai;
 
 class ImportDocs extends Command
 {
@@ -53,18 +53,17 @@ class ImportDocs extends Command
                 continue;
             }
 
-            // Gerar embedding via Ai::embeddings()
-            $result = Ai::embeddings()
-                ->provider(Lab::Gemini)
-                ->model('text-embedding-004')
-                ->embed($doc['content']);
+            // Gerar embedding via Embeddings::for()->generate()
+            $result = Embeddings::for([$doc['content']])
+                ->dimensions(768)
+                ->generate(Lab::Gemini, 'gemini-embedding-001');
 
             // Salvar no banco com o vetor
             DocEmbedding::create([
                 'source'    => $source,
                 'title'     => $doc['title'],
                 'content'   => $doc['content'],
-                'embedding' => $result[0]->embedding,
+                'embedding' => $result->first(),
                 'category'  => $doc['category'],
             ]);
 

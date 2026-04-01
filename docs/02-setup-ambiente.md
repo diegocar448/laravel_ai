@@ -352,7 +352,7 @@ GEMINI_API_KEY=AIza-sua-chave-aqui
 # Modelos Gemini utilizados no projeto
 GEMINI_MODEL=gemini-2.5-flash
 GEMINI_MODEL_LITE=gemini-2.5-flash-lite
-GEMINI_EMBEDDING_MODEL=text-embedding-004
+GEMINI_EMBEDDING_MODEL=gemini-embedding-001
 ```
 
 ### Por que `DB_HOST=pgsql` e nao `localhost`?
@@ -618,15 +618,14 @@ sail artisan tinker
 
 ```php
 // Testar se o SDK esta configurado
-use Laravel\Ai\Facades\Ai;
+use Laravel\Ai\Embeddings;
 use Laravel\Ai\Enums\Lab;
 
-$response = Ai::embeddings()
-    ->provider(Lab::Gemini)
-    ->model('text-embedding-004')
-    ->embed('Hello World');
+$response = Embeddings::for(['Hello World'])
+    ->dimensions(768)
+    ->generate(Lab::Gemini, 'gemini-embedding-001');
 
-echo count($response[0]->embedding); // 768
+echo count($response->first()); // 768
 ```
 
 ### Fila (Queue Worker)
