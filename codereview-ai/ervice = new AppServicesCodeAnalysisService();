@@ -1,0 +1,56 @@
+[90m= [39m[34;4mApp\Models\CodeReview[39;24m {#8465
+    [34mid[39m: [35m1[39m,
+    [34mproject_id[39m: [35m1[39m,
+    [34mreview_status_id[39m: [35m1[39m,
+    [34msummary[39m: [36mnull[39m,
+    [34mcreated_at[39m: [32m"[39m[32m2026-04-01 00:35:34[39m[32m"[39m,
+    [34mupdated_at[39m: [32m"[39m[32m2026-04-01 00:35:34[39m[32m"[39m,
+    [34mproject[39m: [34;4mApp\Models\Project[39;24m {#8903
+      [34mid[39m: [35m1[39m,
+      [34muser_id[39m: [35m1[39m,
+      [34mproject_status_id[39m: [35m1[39m,
+      [34mname[39m: [32m"[39m[32mAPI de Pagamentos[39m[32m"[39m,
+      [34mlanguage[39m: [32m"[39m[32mphp[39m[32m"[39m,
+      [34mcode_snippet[39m: <<<[32mEOS[39m
+        [32m<?php[39m
+        [32mclass PaymentController {[39m
+        [32m    public function store(Request [39m\$[32mrequest) {[39m
+        [32m        [39m\$[32mamount = [39m\$[32mrequest->input("amount");[39m
+        [32m        DB::select("SELECT * FROM payments WHERE amount = " . [39m\$[32mamount);[39m
+        [32m        return response()->json(["ok" => true]);[39m
+        [32m    }[39m
+        [32m}[39m
+        [32mEOS[39m,
+      [34mrepository_url[39m: [36mnull[39m,
+      [34mcreated_at[39m: [32m"[39m[32m2026-04-01 00:35:14[39m[32m"[39m,
+      [34mupdated_at[39m: [32m"[39m[32m2026-04-01 00:35:14[39m[32m"[39m,
+    },
+    [34mfindings[39m: [34;4mIlluminate\Database\Eloquent\Collection[39;24m {#8471
+      [34mall[39m: [
+        [34;4mApp\Models\ReviewFinding[39;24m {#8473
+          [34mid[39m: [35m1[39m,
+          [34mcode_review_id[39m: [35m1[39m,
+          [34mfinding_type_id[39m: [35m2[39m,
+          [34mreview_pillar_id[39m: [35m3[39m,
+          [34mdescription[39m: [32m"[39m[32mSQL Injection via concatenacao de input no DB::select()[39m[32m"[39m,
+          [34mseverity[39m: [32m"[39m[32mmedium[39m[32m"[39m,
+          [34magent_flagged_at[39m: [36mnull[39m,
+          [34muser_flagged_at[39m: [36mnull[39m,
+          [34mcreated_at[39m: [32m"[39m[32m2026-04-01 00:35:48[39m[32m"[39m,
+          [34mupdated_at[39m: [32m"[39m[32m2026-04-01 00:35:48[39m[32m"[39m,
+          [34mtype[39m: [34;4mApp\Models\FindingType[39;24m {#8909
+            [34mid[39m: [35m2[39m,
+            [34mname[39m: [32m"[39m[32mImprovement[39m[32m"[39m,
+            [34mcreated_at[39m: [32m"[39m[32m2026-04-01 00:34:18[39m[32m"[39m,
+            [34mupdated_at[39m: [32m"[39m[32m2026-04-01 00:34:18[39m[32m"[39m,
+          },
+          [34mpillar[39m: [34;4mApp\Models\ReviewPillar[39;24m {#8479
+            [34mid[39m: [35m3[39m,
+            [34mname[39m: [32m"[39m[32mSecurity[39m[32m"[39m,
+            [34mcreated_at[39m: [32m"[39m[32m2026-04-01 00:34:18[39m[32m"[39m,
+            [34mupdated_at[39m: [32m"[39m[32m2026-04-01 00:34:18[39m[32m"[39m,
+          },
+        },
+      ],
+    },
+  }
