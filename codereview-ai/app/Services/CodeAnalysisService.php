@@ -14,15 +14,10 @@ class CodeAnalysisService
         $codeReview->load(['project', 'findings.type', 'findings.pillar']);
 
         // 2. Chamar o Agent com Structured Output
-        // No metodo handle() do CodeAnalysisService, substitua o prompt() por:
         $response = (new CodeAnalyst($codeReview))->prompt(
             $this->buildContext($codeReview),
             provider: Lab::Gemini,
             model: 'gemini-2.5-flash',
-            failover: [
-                Lab::OpenAI => 'gpt-4o-mini',
-                Lab::Anthropic => 'claude-haiku-4-5-20251001',
-            ],
         );
 
         // 3. Resposta sempre tipada — salvar direto no DB
