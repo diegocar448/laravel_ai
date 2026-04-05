@@ -198,7 +198,6 @@ RUN apk add --no-cache \
         pgsql \
         zip \
         intl \
-        opcache \
         pcntl
 
 # Configurar OPcache para producao
