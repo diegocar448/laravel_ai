@@ -468,23 +468,19 @@ O worker fica escutando por novos jobs. Voce vera algo como:
 
 ```bash
 cd ~/laravel_ai/codereview-ai
-sail artisan tinker
-```
-
-```php
-// Criar dados de teste
-$user = App\Models\User::first();
-$project = $user->projects()->first();
-$review = $project->codeReview;
-
-// Disparar o job
-App\Jobs\AnalyzeCodeJob::dispatch($review);
-
-// Sair do Tinker
-exit
+sail artisan tinker --execute="
+\$user = App\Models\User::first() ?? App\Models\User::factory()->create();
+\$project = \$user->projects()->first() ?? App\Models\Project::create(['user_id' => \$user->id, 'project_status_id' => 1, 'name' => 'Test Project', 'language' => 'PHP', 'code_snippet' => '<?php echo \"hello\";']);
+\$review = \$project->codeReview ?? App\Models\CodeReview::create(['project_id' => \$project->id, 'review_status_id' => 1]);
+echo 'User: ' . \$user->email . ' | Project: ' . \$project->name . ' | Review ID: ' . \$review->id . PHP_EOL;
+App\Jobs\AnalyzeCodeJob::dispatch(\$review);
+echo 'Job disparado! Verifique o Terminal 1.' . PHP_EOL;
+"
 ```
 
 Volte ao Terminal 1 e verifique que o job foi processado.
+
+> **Rate Limit:** O Gemini free tier tem limite de ~15 requisicoes por minuto e cota diaria. Se o job falhar com `RateLimitedException`, aguarde alguns minutos e tente novamente. O `backoff = 60` no job ja garante que os retries aguardem 60 segundos automaticamente.
 
 ### Monitorando com Laravel Pail
 

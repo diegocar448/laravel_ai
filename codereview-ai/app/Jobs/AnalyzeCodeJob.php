@@ -17,6 +17,7 @@ class AnalyzeCodeJob implements ShouldQueue
 
     public int $tries = 3;          // Tentar ate 3 vezes
     public int $timeout = 120;       // Timeout de 2 minutos
+    public int $backoff = 60;        // Aguardar 60s antes de cada retry (rate limit)
 
     public function __construct(
         public CodeReview $codeReview,

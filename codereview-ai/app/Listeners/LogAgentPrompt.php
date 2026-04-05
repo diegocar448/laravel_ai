@@ -9,10 +9,12 @@ class LogAgentPrompt
 {
     public function handle(AgentPrompted $event): void
     {
+        $usage = $event->response->usage;
+
         Log::info('Agent prompted', [
-            'agent' => get_class($event->agent),
-            'tokens' => $event->usage->totalTokens,
-            'duration_ms' => $event->durationMs,
+            'agent' => get_class($event->prompt->agent),
+            'prompt_tokens' => $usage->promptTokens,
+            'completion_tokens' => $usage->completionTokens,
         ]);
     }
 }
