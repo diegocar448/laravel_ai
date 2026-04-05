@@ -342,11 +342,63 @@ git commit -m "feat: add review show page with polling feedback"
 
 ---
 
-## Passo 6 — Escrever testes com FakeAi
+## Passo 6 — Escrever testes com Ai::fakeAgent
 
-O Laravel AI SDK oferece `FakeAi` para testar sem chamar APIs reais. Vamos criar testes para os dois jobs.
+O Laravel AI SDK oferece `Ai::fakeAgent()` para testar sem chamar APIs reais. Vamos criar testes para os dois jobs.
 
-Crie o arquivo de teste:
+> **Nota:** O SDK nao tem uma classe `FakeAi` — a API correta e `Ai::fakeAgent(AgentClass::class, [respostas])` diretamente na facade `Laravel\Ai\Ai`.
+
+Antes de criar os testes, precisamos das factories de `Project` e `CodeReview`. Crie os arquivos:
+
+**`database/factories/ProjectFactory.php`:**
+
+```php
+<?php
+
+namespace Database\Factories;
+
+use App\Models\User;
+use Illuminate\Database\Eloquent\Factories\Factory;
+
+class ProjectFactory extends Factory
+{
+    public function definition(): array
+    {
+        return [
+            'user_id' => User::factory(),
+            'project_status_id' => 1,
+            'name' => $this->faker->words(3, true),
+            'language' => 'PHP',
+            'code_snippet' => '<?php echo "hello";',
+        ];
+    }
+}
+```
+
+**`database/factories/CodeReviewFactory.php`:**
+
+```php
+<?php
+
+namespace Database\Factories;
+
+use App\Models\Project;
+use Illuminate\Database\Eloquent\Factories\Factory;
+
+class CodeReviewFactory extends Factory
+{
+    public function definition(): array
+    {
+        return [
+            'project_id' => Project::factory(),
+            'review_status_id' => 1,
+            'summary' => null,
+        ];
+    }
+}
+```
+
+Agora crie o arquivo de teste:
 
 ```bash
 sail artisan make:test Jobs/AnalyzeCodeJobTest --pest
@@ -360,23 +412,24 @@ Edite `tests/Feature/Jobs/AnalyzeCodeJobTest.php`:
 use App\Ai\Agents\CodeAnalyst;
 use App\Jobs\AnalyzeCodeJob;
 use App\Models\CodeReview;
-use Laravel\Ai\Testing\FakeAi;
+use Laravel\Ai\Ai;
+
+uses(Tests\TestCase::class, Illuminate\Foundation\Testing\RefreshDatabase::class)
+    ->beforeEach(fn () => (new Database\Seeders\LookupSeeder)->run());
 
 test('analyze code job processes successfully', function () {
-    // Fake todas as chamadas de IA
-    FakeAi::fake();
-
-    // Configurar resposta esperada do Agent
-    FakeAi::agent(CodeAnalyst::class)
-        ->respondWith([
+    // Fake Agent com resposta estruturada
+    Ai::fakeAgent(CodeAnalyst::class, [
+        [
             'summary' => 'Codigo analisado com sucesso.',
             'score' => 85,
             'priority_finding_ids' => [1, 2, 3],
-        ]);
+        ],
+    ]);
 
     $codeReview = CodeReview::factory()->create();
 
-    // Executar o job
+    // Executar o job (queue=sync em testes)
     AnalyzeCodeJob::dispatch($codeReview);
 
     // Assertions
@@ -386,14 +439,16 @@ test('analyze code job processes successfully', function () {
 });
 
 test('analyze code job handles failure', function () {
-    FakeAi::fake();
-
-    FakeAi::agent(CodeAnalyst::class)
-        ->throwException(new \Exception('API timeout'));
+    Ai::fakeAgent(CodeAnalyst::class, [
+        fn () => throw new \Exception('API timeout'),
+    ]);
 
     $codeReview = CodeReview::factory()->create();
 
-    AnalyzeCodeJob::dispatch($codeReview);
+    // Em modo sync a excecao propaga — o failed() ja foi chamado
+    try {
+        AnalyzeCodeJob::dispatch($codeReview);
+    } catch (\Throwable) {}
 
     $codeReview->refresh();
     expect($codeReview->review_status_id)->toBe(3); // Failed
@@ -413,35 +468,49 @@ Edite `tests/Feature/Jobs/EmbeddingsTest.php`:
 ```php
 <?php
 
-use Laravel\Ai\Testing\FakeAi;
+use App\Ai\Tools\SearchDocsKnowledgeBase;
+use Laravel\Ai\Embeddings;
+use Laravel\Ai\Tools\Request;
+
+uses(Tests\TestCase::class, Illuminate\Foundation\Testing\RefreshDatabase::class)
+    ->beforeEach(fn () => (new Database\Seeders\LookupSeeder)->run());
 
 test('search docs knowledge base returns results', function () {
-    FakeAi::fake();
+    // Inserir doc de teste no banco
+    \App\Models\DocEmbedding::create([
+        'source' => 'owasp',
+        'title' => 'OWASP A03:2021 - Injection',
+        'content' => 'SQL injection prevention techniques.',
+        'category' => 'security',
+        'embedding' => array_fill(0, 768, 0.1),
+    ]);
 
-    FakeAi::embeddings()
-        ->respondWith([[0.1, 0.2, 0.3, /* ...768 dims */]]);
+    // Fake embeddings — vetor identico ao doc para garantir similaridade maxima
+    Embeddings::fake([
+        [array_fill(0, 768, 0.1)],
+    ]);
 
-    $tool = new \App\Ai\Tools\SearchDocsKnowledgeBase;
-    $result = $tool->execute([
+    $tool = new SearchDocsKnowledgeBase;
+    $result = $tool->handle(new Request([
         'query' => 'SQL injection prevention',
         'category' => 'security',
-    ]);
+    ]));
 
     expect($result)->toContain('OWASP');
 });
 ```
 
-**Pontos importantes sobre FakeAi:**
-- `FakeAi::fake()` — intercepta todas as chamadas de IA, nenhuma API real e chamada
-- `FakeAi::agent(Class)->respondWith([...])` — define a resposta que o Agent vai retornar
-- `FakeAi::agent(Class)->throwException(...)` — simula falha na API
-- `FakeAi::embeddings()->respondWith([...])` — simula resposta de embeddings
+**Pontos importantes sobre o fake de IA:**
+- `Ai::fakeAgent(Class, [respostas])` — intercepta chamadas do Agent sem chamar API real
+- `Embeddings::fake([[vetor]])` — intercepta chamadas de embeddings
+- Passar `fn() => throw new Exception(...)` como resposta simula falha na API
+- O `uses(...RefreshDatabase)` garante banco limpo a cada teste
 
 ```bash
 # Commitar
 cd ~/laravel_ai
 git add .
-git commit -m "feat: add FakeAi tests for jobs and embeddings"
+git commit -m "feat: add AI fake tests for jobs and embeddings"
 ```
 
 ---
@@ -629,8 +698,10 @@ git pull
 | `app/Jobs/GenerateImprovementsJob.php` | Job que gera plano de melhorias via CodeMentor Agent |
 | `app/Listeners/LogAgentPrompt.php` | Listener que loga chamadas de Agents (tokens, duracao) |
 | `resources/views/pages/reviews/show.blade.php` | Pagina com polling para feedback em tempo real |
-| `tests/Feature/Jobs/AnalyzeCodeJobTest.php` | Testes com FakeAi para AnalyzeCodeJob |
-| `tests/Feature/Jobs/EmbeddingsTest.php` | Testes com FakeAi para embeddings |
+| `database/factories/ProjectFactory.php` | Factory para criacao de projetos em testes |
+| `database/factories/CodeReviewFactory.php` | Factory para criacao de code reviews em testes |
+| `tests/Feature/Jobs/AnalyzeCodeJobTest.php` | Testes com Ai::fakeAgent para AnalyzeCodeJob |
+| `tests/Feature/Jobs/EmbeddingsTest.php` | Testes com Embeddings::fake para SearchDocsKnowledgeBase |
 | `docker/supervisor/supervisord.conf` | Supervisor config para queue worker em producao |
 
 ## Proximo capitulo

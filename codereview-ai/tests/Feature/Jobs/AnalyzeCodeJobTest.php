@@ -3,23 +3,24 @@
 use App\Ai\Agents\CodeAnalyst;
 use App\Jobs\AnalyzeCodeJob;
 use App\Models\CodeReview;
-use Laravel\Ai\Testing\FakeAi;
+use Laravel\Ai\Ai;
+
+uses(Tests\TestCase::class, Illuminate\Foundation\Testing\RefreshDatabase::class)
+    ->beforeEach(fn () => (new Database\Seeders\LookupSeeder)->run());
 
 test('analyze code job processes successfully', function () {
-    // Fake todas as chamadas de IA
-    FakeAi::fake();
-
-    // Configurar resposta esperada do Agent
-    FakeAi::agent(CodeAnalyst::class)
-        ->respondWith([
+    // Fake chamadas do Agent com resposta estruturada
+    Ai::fakeAgent(CodeAnalyst::class, [
+        [
             'summary' => 'Codigo analisado com sucesso.',
             'score' => 85,
             'priority_finding_ids' => [1, 2, 3],
-        ]);
+        ],
+    ]);
 
     $codeReview = CodeReview::factory()->create();
 
-    // Executar o job
+    // Executar o job (queue=sync em testes)
     AnalyzeCodeJob::dispatch($codeReview);
 
     // Assertions
@@ -29,14 +30,19 @@ test('analyze code job processes successfully', function () {
 });
 
 test('analyze code job handles failure', function () {
-    FakeAi::fake();
-
-    FakeAi::agent(CodeAnalyst::class)
-        ->throwException(new \Exception('API timeout'));
+    // Fake Agent lancando excecao
+    Ai::fakeAgent(CodeAnalyst::class, [
+        fn () => throw new \Exception('API timeout'),
+    ]);
 
     $codeReview = CodeReview::factory()->create();
 
-    AnalyzeCodeJob::dispatch($codeReview);
+    // O job falha mas o failed() atualiza o status
+    try {
+        AnalyzeCodeJob::dispatch($codeReview);
+    } catch (\Throwable) {
+        // Em modo sync a excecao propaga — o failed() ja foi chamado
+    }
 
     $codeReview->refresh();
     expect($codeReview->review_status_id)->toBe(3); // Failed
