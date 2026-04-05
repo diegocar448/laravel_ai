@@ -410,22 +410,107 @@ docker compose -f compose-prod.yaml down
 
 ---
 
-## Passo 7 — Deploy na AWS (conceito)
+## Passo 7 — Deploy na AWS
 
-Para deploy em producao na AWS, o fluxo e:
+Duas opcoes dependendo do seu objetivo:
+
+| | Opcao A: EC2 + Docker | Opcao B: ECS Fargate |
+|--|----------------------|---------------------|
+| **Custo** | Gratis (free tier t2.micro) | ~$15-30/mes |
+| **Gerenciamento** | Voce cuida do SO e Docker | AWS gerencia tudo |
+| **Complexidade** | Maior (SSH, updates) | Menor |
+| **Ideal para** | Aprendizado, projetos pessoais | Producao com escala |
+
+---
+
+### Opcao A — EC2 + Docker (Free Tier)
+
+**1. Criar instancia EC2:**
 
 ```bash
-# Login no ECR
-aws ecr get-login-password | docker login --username AWS --password-stdin <account>.dkr.ecr.<region>.amazonaws.com
-
-# Tag e push
-docker tag codereview-ai:latest <account>.dkr.ecr.<region>.amazonaws.com/codereview-ai:latest
-docker push <account>.dkr.ecr.<region>.amazonaws.com/codereview-ai:latest
-
-# Deploy via ECS, EKS ou App Runner
+# No console AWS: EC2 -> Launch Instance
+# AMI: Amazon Linux 2023
+# Tipo: t2.micro (free tier)
+# Security Group: abrir porta 80 (HTTP) e 22 (SSH)
 ```
 
-> Este e um exemplo conceitual. No Capitulo 13 vamos detalhar a API REST com Sanctum e Swagger. A infraestrutura completa com Terraform sera abordada em capitulos futuros.
+**2. Instalar Docker na instancia:**
+
+```bash
+ssh -i sua-chave.pem ec2-user@<ip-publico>
+
+sudo yum update -y
+sudo yum install -y docker
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo usermod -aG docker ec2-user
+```
+
+**3. Fazer login no ECR e rodar o container:**
+
+```bash
+# No seu computador — build e push para ECR
+aws ecr create-repository --repository-name codereview-ai --region us-east-1
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <account>.dkr.ecr.us-east-1.amazonaws.com
+docker tag codereview-ai:latest <account>.dkr.ecr.us-east-1.amazonaws.com/codereview-ai:latest
+docker push <account>.dkr.ecr.us-east-1.amazonaws.com/codereview-ai:latest
+
+# Na instancia EC2
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <account>.dkr.ecr.us-east-1.amazonaws.com
+docker pull <account>.dkr.ecr.us-east-1.amazonaws.com/codereview-ai:latest
+docker run -d --name codereview-ai -p 80:80 --env-file .env <account>.dkr.ecr.us-east-1.amazonaws.com/codereview-ai:latest
+```
+
+**4. Verificar:**
+
+```bash
+curl http://<ip-publico>/health
+# {"status":"ok"}
+```
+
+---
+
+### Opcao B — ECS Fargate (Producao)
+
+**1. Build e push para ECR:**
+
+```bash
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <account>.dkr.ecr.us-east-1.amazonaws.com
+docker tag codereview-ai:latest <account>.dkr.ecr.us-east-1.amazonaws.com/codereview-ai:latest
+docker push <account>.dkr.ecr.us-east-1.amazonaws.com/codereview-ai:latest
+```
+
+**2. Criar Task Definition no ECS:**
+
+```json
+{
+  "family": "codereview-ai",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "containerDefinitions": [{
+    "name": "app",
+    "image": "<account>.dkr.ecr.us-east-1.amazonaws.com/codereview-ai:latest",
+    "portMappings": [{ "containerPort": 80 }],
+    "environment": [
+      { "name": "APP_ENV", "value": "production" }
+    ]
+  }]
+}
+```
+
+**3. Criar Service e aguardar deploy:**
+
+```bash
+# Via console AWS: ECS -> Clusters -> Create Service
+# Launch type: FARGATE
+# Task definition: codereview-ai
+# Desired tasks: 1
+# Load balancer: Application Load Balancer (opcional)
+```
+
+> A infraestrutura completa com Terraform (VPC, RDS, ElastiCache, ECS) sera abordada em capitulos futuros.
 
 ---
 
