@@ -2,7 +2,7 @@
 
 > **Este capitulo cobre:** Endpoints REST para integracao externa (CI/CD, GitHub Actions, CLIs) e documentacao interativa com Swagger/OpenAPI.
 
-Neste capitulo vamos criar uma **API REST completa** com autenticacao via Sanctum, documentada com Swagger. Ao final, voce tera endpoints para criar projetos, disparar code reviews e gerenciar melhorias — tudo acessivel por ferramentas externas, pipelines e apps terceiros.
+Neste capitulo vamos criar uma **API REST completa** com autenticacao via Sanctum, documentada com Scramble. Ao final, voce tera endpoints para criar projetos, disparar code reviews e gerenciar melhorias — tudo acessivel por ferramentas externas, pipelines e apps terceiros.
 
 ## Antes de comecar
 
@@ -34,52 +34,77 @@ O projeto usa Livewire para a UI, mas uma API REST permite:
 
 ---
 
-## Passo 1 — Instalar o L5-Swagger
+## Passo 1 — Instalar o Scramble
+
+O **Scramble** e um pacote que gera documentacao OpenAPI/Swagger automaticamente a partir do codigo — sem anotacoes. Ele le as rotas, validacoes e tipos para gerar a documentacao.
+
+> **Por que Scramble e nao L5-Swagger?** O `darkaonline/l5-swagger` nao tem suporte para Laravel 13. O Scramble e a alternativa moderna, suportada oficialmente pela comunidade Laravel.
 
 ```bash
-sail composer require darkaonline/l5-swagger
-sail artisan vendor:publish --provider="L5Swagger\L5SwaggerServiceProvider"
+sail composer require dedoc/scramble
+sail artisan vendor:publish --provider="Dedoc\Scramble\ScrambleServiceProvider" --tag="scramble-config"
 ```
 
-Edite `config/l5-swagger.php` — ajuste as seguintes chaves dentro do array `defaults`:
+Edite `config/scramble.php` — ajuste as informacoes da API:
 
 ```php
-// config/l5-swagger.php (principais ajustes)
 return [
-    'defaults' => [
-        'routes' => [
-            'api' => 'api/documentation',
-        ],
-        'info' => [
-            'title' => 'CodeReview AI API',
-            'version' => '1.0.0',
-            'description' => 'API REST para code review com IA usando Laravel AI SDK',
-        ],
-        'securityDefinitions' => [
-            'securitySchemes' => [
-                'sanctum' => [
-                    'type' => 'http',
-                    'scheme' => 'bearer',
-                    'description' => 'Token gerado via POST /api/auth/token',
-                ],
-            ],
-        ],
+    'api_path' => 'api',
+    'api_domain' => null,
+    'info' => [
+        'title' => 'CodeReview AI API',
+        'version' => '1.0.0',
+        'description' => 'API REST para code review com IA — Laravel AI SDK + Gemini',
     ],
+    'middleware' => [],
+    'extensions' => [],
 ];
 ```
 
-Adicione as variaveis ao `.env`:
+Adicione a configuracao de seguranca (Bearer token) no `AppServiceProvider` — mantenha o `Volt::mount` existente e adicione o bloco do Scramble:
 
-```env
-L5_SWAGGER_GENERATE_ALWAYS=true
-L5_SWAGGER_CONST_HOST=http://localhost/api
+```php
+<?php
+
+namespace App\Providers;
+
+use Dedoc\Scramble\Scramble;
+use Dedoc\Scramble\Support\Generator\OpenApi;
+use Dedoc\Scramble\Support\Generator\SecurityScheme;
+use Illuminate\Support\ServiceProvider;
+use Livewire\Volt\Volt;
+
+class AppServiceProvider extends ServiceProvider
+{
+    public function register(): void
+    {
+        //
+    }
+
+    public function boot(): void
+    {
+        Volt::mount([
+            resource_path('views'),
+        ]);
+
+        Scramble::configure()
+            ->afterOpenApiGenerated(function (OpenApi $openApi) {
+                $openApi->secure(
+                    SecurityScheme::http('bearer')
+                        ->setDescription('Token Sanctum via POST /api/auth/token')
+                );
+            });
+    }
+}
 ```
+
+> Apos essa configuracao, a UI do Scramble exibira um botao **Authorize** no topo para inserir o Bearer token antes de testar endpoints protegidos.
 
 ```bash
 # Commitar
 cd ~/laravel_ai
 git add .
-git commit -m "feat: install and configure L5-Swagger"
+git commit -m "feat: install and configure Scramble for API docs"
 ```
 
 ---
@@ -113,9 +138,9 @@ git commit -m "feat: install Sanctum and run api migration"
 
 ---
 
-## Passo 3 — Adicionar annotation base do Swagger no Controller
+## Passo 3 — Corrigir o Controller base
 
-O L5-Swagger precisa de uma annotation `OA\Info` em algum controller. Vamos adicionar no `Controller.php` base.
+O `Controller.php` base precisa ter a trait `AuthorizesRequests` para que os controllers da API possam usar `$this->authorize()`:
 
 Edite `app/Http/Controllers/Controller.php`:
 
@@ -124,29 +149,19 @@ Edite `app/Http/Controllers/Controller.php`:
 
 namespace App\Http\Controllers;
 
-use OpenApi\Attributes as OA;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 
-#[OA\Info(
-    title: 'CodeReview AI API',
-    version: '1.0.0',
-    description: 'API REST para code review com IA — Laravel AI SDK + Gemini',
-    contact: new OA\Contact(name: 'CodeReview AI', email: 'api@codereview.ai'),
-)]
-#[OA\Server(url: 'http://localhost', description: 'Local')]
-#[OA\SecurityScheme(
-    securityScheme: 'sanctum',
-    type: 'http',
-    scheme: 'bearer',
-    description: 'Bearer token via POST /api/auth/token'
-)]
-abstract class Controller {}
+abstract class Controller
+{
+    use AuthorizesRequests;
+}
 ```
 
 ```bash
 # Commitar
 cd ~/laravel_ai
 git add .
-git commit -m "feat: add OpenAPI base annotation to Controller"
+git commit -m "feat: fix Controller base with AuthorizesRequests"
 ```
 
 ---
@@ -169,30 +184,9 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
-use OpenApi\Attributes as OA;
 
 class AuthController extends Controller
 {
-    #[OA\Post(
-        path: '/api/auth/token',
-        summary: 'Gerar token de acesso',
-        tags: ['Auth'],
-        requestBody: new OA\RequestBody(
-            required: true,
-            content: new OA\JsonContent(
-                required: ['email', 'password', 'device_name'],
-                properties: [
-                    new OA\Property(property: 'email', type: 'string', format: 'email'),
-                    new OA\Property(property: 'password', type: 'string'),
-                    new OA\Property(property: 'device_name', type: 'string', example: 'cli-tool'),
-                ]
-            )
-        ),
-        responses: [
-            new OA\Response(response: 200, description: 'Token gerado'),
-            new OA\Response(response: 422, description: 'Credenciais invalidas'),
-        ]
-    )]
     public function token(Request $request): array
     {
         $request->validate([
@@ -216,6 +210,8 @@ class AuthController extends Controller
 }
 ```
 
+> **Scramble auto-documenta este endpoint** lendo as regras de validacao do `$request->validate()` e o tipo de retorno `array`.
+
 ```bash
 # Commitar
 cd ~/laravel_ai
@@ -227,7 +223,7 @@ git commit -m "feat: add AuthController with Sanctum token endpoint"
 
 ## Passo 5 — Criar a ProjectPolicy
 
-Antes dos controllers que usam autorizacao, precisamos da Policy.
+A `ProjectPolicy` garante que somente o dono do projeto pode visualiza-lo, edita-lo ou deleta-lo. Se ainda nao existe no projeto, crie-a:
 
 ```bash
 sail artisan make:policy ProjectPolicy --model=Project
@@ -292,27 +288,12 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Project;
 use App\Enums\ProjectStatusEnum;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use OpenApi\Attributes as OA;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class ProjectController extends Controller
 {
-    #[OA\Get(
-        path: '/api/projects',
-        summary: 'Listar projetos do usuario',
-        tags: ['Projects'],
-        security: [['sanctum' => []]],
-        responses: [
-            new OA\Response(
-                response: 200,
-                description: 'Lista de projetos',
-                content: new OA\JsonContent(
-                    type: 'array',
-                    items: new OA\Items(ref: '#/components/schemas/Project')
-                )
-            ),
-        ]
-    )]
     public function index(Request $request)
     {
         return $request->user()
@@ -322,29 +303,7 @@ class ProjectController extends Controller
             ->paginate(20);
     }
 
-    #[OA\Post(
-        path: '/api/projects',
-        summary: 'Criar projeto para review',
-        tags: ['Projects'],
-        security: [['sanctum' => []]],
-        requestBody: new OA\RequestBody(
-            required: true,
-            content: new OA\JsonContent(
-                required: ['name', 'language', 'code_snippet'],
-                properties: [
-                    new OA\Property(property: 'name', type: 'string', example: 'API de Pagamentos'),
-                    new OA\Property(property: 'language', type: 'string', enum: ['php', 'javascript', 'python', 'go', 'rust', 'java', 'typescript']),
-                    new OA\Property(property: 'code_snippet', type: 'string', example: 'class PaymentService { ... }'),
-                    new OA\Property(property: 'repository_url', type: 'string', nullable: true),
-                ]
-            )
-        ),
-        responses: [
-            new OA\Response(response: 201, description: 'Projeto criado'),
-            new OA\Response(response: 422, description: 'Validacao falhou'),
-        ]
-    )]
-    public function store(Request $request)
+    public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
@@ -361,51 +320,26 @@ class ProjectController extends Controller
         return response()->json($project->load('status'), 201);
     }
 
-    #[OA\Get(
-        path: '/api/projects/{id}',
-        summary: 'Detalhes de um projeto',
-        tags: ['Projects'],
-        security: [['sanctum' => []]],
-        parameters: [
-            new OA\Parameter(name: 'id', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
-        ],
-        responses: [
-            new OA\Response(response: 200, description: 'Projeto com review e improvements'),
-            new OA\Response(response: 404, description: 'Nao encontrado'),
-        ]
-    )]
-    public function show(Project $project)
+    public function show(Project $project): JsonResponse
     {
         $this->authorize('view', $project);
 
-        return $project->load([
+        return response()->json($project->load([
             'status',
             'codeReview.status',
             'codeReview.findings.pillar',
             'codeReview.findings.type',
             'improvements.type',
             'improvements.step',
-        ]);
+        ]));
     }
 
-    #[OA\Delete(
-        path: '/api/projects/{id}',
-        summary: 'Deletar projeto',
-        tags: ['Projects'],
-        security: [['sanctum' => []]],
-        parameters: [
-            new OA\Parameter(name: 'id', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
-        ],
-        responses: [
-            new OA\Response(response: 204, description: 'Deletado'),
-        ]
-    )]
-    public function destroy(Project $project)
+    public function destroy(Project $project): JsonResponse
     {
         $this->authorize('delete', $project);
         $project->delete();
 
-        return response()->noContent();
+        return response()->json(null, 204);
     }
 }
 ```
@@ -414,7 +348,7 @@ class ProjectController extends Controller
 # Commitar
 cd ~/laravel_ai
 git add .
-git commit -m "feat: add API ProjectController with OpenAPI attributes"
+git commit -m "feat: add API ProjectController"
 ```
 
 ---
@@ -436,40 +370,12 @@ use App\Http\Controllers\Controller;
 use App\Jobs\AnalyzeCodeJob;
 use App\Models\CodeReview;
 use App\Models\Project;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use OpenApi\Attributes as OA;
 
 class CodeReviewController extends Controller
 {
-    #[OA\Post(
-        path: '/api/projects/{projectId}/reviews',
-        summary: 'Iniciar code review com IA',
-        description: 'Cria um CodeReview e dispara o Agent de analise em background. Use GET /reviews/{id} para acompanhar o status.',
-        tags: ['Code Reviews'],
-        security: [['sanctum' => []]],
-        parameters: [
-            new OA\Parameter(name: 'projectId', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
-        ],
-        requestBody: new OA\RequestBody(
-            required: true,
-            content: new OA\JsonContent(
-                required: ['architecture_strength', 'architecture_improvement', 'performance_strength', 'performance_improvement', 'security_strength', 'security_improvement'],
-                properties: [
-                    new OA\Property(property: 'architecture_strength', type: 'string'),
-                    new OA\Property(property: 'architecture_improvement', type: 'string'),
-                    new OA\Property(property: 'performance_strength', type: 'string'),
-                    new OA\Property(property: 'performance_improvement', type: 'string'),
-                    new OA\Property(property: 'security_strength', type: 'string'),
-                    new OA\Property(property: 'security_improvement', type: 'string'),
-                ]
-            )
-        ),
-        responses: [
-            new OA\Response(response: 201, description: 'Review iniciado (status: Pending)'),
-            new OA\Response(response: 409, description: 'Projeto ja possui review'),
-        ]
-    )]
-    public function store(Request $request, Project $project)
+    public function store(Request $request, Project $project): JsonResponse
     {
         $this->authorize('update', $project);
 
@@ -490,7 +396,6 @@ class CodeReviewController extends Controller
             'review_status_id' => 1, // Pending
         ]);
 
-        // Criar 6 findings (3 pilares x 2 tipos)
         $findings = [
             ['pillar' => 1, 'type' => 1, 'desc' => $validated['architecture_strength']],
             ['pillar' => 1, 'type' => 2, 'desc' => $validated['architecture_improvement']],
@@ -508,7 +413,6 @@ class CodeReviewController extends Controller
             ]);
         }
 
-        // Dispara Agent em background
         AnalyzeCodeJob::dispatch($codeReview);
 
         $request->user()->update(['first_review_at' => now()]);
@@ -519,29 +423,16 @@ class CodeReviewController extends Controller
         );
     }
 
-    #[OA\Get(
-        path: '/api/reviews/{id}',
-        summary: 'Status e resultado de um code review',
-        description: 'Retorna o review com findings. Status: 1=Pending, 2=Completed, 3=Failed.',
-        tags: ['Code Reviews'],
-        security: [['sanctum' => []]],
-        parameters: [
-            new OA\Parameter(name: 'id', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
-        ],
-        responses: [
-            new OA\Response(response: 200, description: 'Review com findings'),
-        ]
-    )]
-    public function show(CodeReview $codeReview)
+    public function show(CodeReview $codeReview): JsonResponse
     {
         $this->authorize('view', $codeReview->project);
 
-        return $codeReview->load([
+        return response()->json($codeReview->load([
             'status',
             'project',
             'findings.pillar',
             'findings.type',
-        ]);
+        ]));
     }
 }
 ```
@@ -550,7 +441,7 @@ class CodeReviewController extends Controller
 # Commitar
 cd ~/laravel_ai
 git add .
-git commit -m "feat: add API CodeReviewController with OpenAPI attributes"
+git commit -m "feat: add API CodeReviewController"
 ```
 
 ---
@@ -571,25 +462,12 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Improvement;
 use App\Models\Project;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use OpenApi\Attributes as OA;
 
 class ImprovementController extends Controller
 {
-    #[OA\Get(
-        path: '/api/projects/{projectId}/improvements',
-        summary: 'Listar melhorias (Kanban) de um projeto',
-        tags: ['Improvements'],
-        security: [['sanctum' => []]],
-        parameters: [
-            new OA\Parameter(name: 'projectId', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
-            new OA\Parameter(name: 'step', in: 'query', required: false, description: '1=ToDo, 2=InProgress, 3=Done', schema: new OA\Schema(type: 'integer')),
-        ],
-        responses: [
-            new OA\Response(response: 200, description: 'Lista de improvements'),
-        ]
-    )]
-    public function index(Request $request, Project $project)
+    public function index(Request $request, Project $project): JsonResponse
     {
         $this->authorize('view', $project);
 
@@ -599,31 +477,10 @@ class ImprovementController extends Controller
             $query->where('improvement_step_id', $request->step);
         }
 
-        return $query->get();
+        return response()->json($query->get());
     }
 
-    #[OA\Patch(
-        path: '/api/improvements/{id}',
-        summary: 'Atualizar improvement (mover no Kanban)',
-        tags: ['Improvements'],
-        security: [['sanctum' => []]],
-        parameters: [
-            new OA\Parameter(name: 'id', in: 'path', required: true, schema: new OA\Schema(type: 'integer')),
-        ],
-        requestBody: new OA\RequestBody(
-            content: new OA\JsonContent(
-                properties: [
-                    new OA\Property(property: 'improvement_step_id', type: 'integer', description: '1=ToDo, 2=InProgress, 3=Done'),
-                    new OA\Property(property: 'order', type: 'integer'),
-                    new OA\Property(property: 'completed_at', type: 'string', format: 'date-time', nullable: true),
-                ]
-            )
-        ),
-        responses: [
-            new OA\Response(response: 200, description: 'Improvement atualizado'),
-        ]
-    )]
-    public function update(Request $request, Improvement $improvement)
+    public function update(Request $request, Improvement $improvement): JsonResponse
     {
         $this->authorize('update', $improvement->project);
 
@@ -635,7 +492,7 @@ class ImprovementController extends Controller
 
         $improvement->update($validated);
 
-        return $improvement->load(['type', 'step']);
+        return response()->json($improvement->load(['type', 'step']));
     }
 }
 ```
@@ -644,56 +501,12 @@ class ImprovementController extends Controller
 # Commitar
 cd ~/laravel_ai
 git add .
-git commit -m "feat: add API ImprovementController with OpenAPI attributes"
+git commit -m "feat: add API ImprovementController"
 ```
 
 ---
 
-## Passo 9 — Criar o Schema OpenAPI para o Project
-
-Crie o diretorio e o arquivo de schema:
-
-```bash
-mkdir -p app/Http/Resources/Schemas
-```
-
-Crie `app/Http/Resources/Schemas/ProjectSchema.php`:
-
-```php
-<?php
-
-namespace App\Http\Resources\Schemas;
-
-use OpenApi\Attributes as OA;
-
-#[OA\Schema(
-    schema: 'Project',
-    properties: [
-        new OA\Property(property: 'id', type: 'integer'),
-        new OA\Property(property: 'name', type: 'string'),
-        new OA\Property(property: 'language', type: 'string'),
-        new OA\Property(property: 'code_snippet', type: 'string'),
-        new OA\Property(property: 'repository_url', type: 'string', nullable: true),
-        new OA\Property(property: 'status', type: 'object', properties: [
-            new OA\Property(property: 'id', type: 'integer'),
-            new OA\Property(property: 'name', type: 'string'),
-        ]),
-        new OA\Property(property: 'created_at', type: 'string', format: 'date-time'),
-    ]
-)]
-class ProjectSchema {}
-```
-
-```bash
-# Commitar
-cd ~/laravel_ai
-git add .
-git commit -m "feat: add ProjectSchema for OpenAPI documentation"
-```
-
----
-
-## Passo 10 — Configurar as rotas da API
+## Passo 9 — Configurar as rotas da API
 
 Edite `routes/api.php`:
 
@@ -738,40 +551,40 @@ git commit -m "feat: add API routes with Sanctum middleware"
 
 ---
 
-## Passo 11 — Gerar a documentacao Swagger
+## Passo 10 — Verificar a documentacao Swagger
 
-```bash
-sail artisan l5-swagger:generate
-```
-
-**Verificacao:** acesse a documentacao interativa no navegador:
+Acesse a documentacao interativa no navegador:
 
 ```
-http://localhost/api/documentation
+http://localhost/docs/api
 ```
 
-Voce deve ver a interface do Swagger UI com todos os endpoints organizados por tags: Auth, Projects, Code Reviews e Improvements.
+Voce deve ver a interface Swagger UI com todos os endpoints organizados automaticamente pelo Scramble.
+
+> **Como o Scramble funciona:** ele le as rotas em `routes/api.php`, os parametros das funcoes, as regras de `$request->validate()` e os tipos de retorno `JsonResponse` para gerar o schema OpenAPI automaticamente — sem anotacoes.
 
 ---
 
-## Passo 12 — Testar a API com curl
+## Passo 11 — Testar a API com curl
 
-Vamos testar o fluxo completo via terminal. Certifique-se de ter um usuario no banco (se nao tiver, rode `sail artisan migrate:fresh --seed` e crie um usuario pelo Tinker ou pela interface).
+Vamos testar o fluxo completo via terminal. Certifique-se de ter um usuario no banco (crie pelo formulario da interface ou pelo Tinker).
 
-### 12.1 — Obter token de autenticacao
+### 10.1 — Obter token de autenticacao
 
 ```bash
 TOKEN=$(curl -s -X POST http://localhost/api/auth/token \
   -H "Content-Type: application/json" \
-  -d '{"email":"user@test.com","password":"password","device_name":"curl"}' \
+  -d '{"email":"seu@email.com","password":"suasenha","device_name":"curl"}' \
   | jq -r '.token')
 
 echo $TOKEN
 ```
 
+> **O que e `device_name`?** E um nome livre para identificar o token no banco (ex: `"curl"`, `"github-actions"`, `"meu-app"`). Aparece na tabela `personal_access_tokens` e ajuda a revogar tokens por dispositivo.
+
 Deve retornar um token longo. Se retornar `null`, verifique se o usuario existe e a senha esta correta.
 
-### 12.2 — Criar um projeto
+### 10.2 — Criar um projeto
 
 ```bash
 PROJECT=$(curl -s -X POST http://localhost/api/projects \
@@ -786,7 +599,7 @@ PROJECT=$(curl -s -X POST http://localhost/api/projects \
 echo "Projeto criado com ID: $PROJECT"
 ```
 
-### 12.3 — Iniciar code review
+### 10.3 — Iniciar code review
 
 ```bash
 curl -s -X POST "http://localhost/api/projects/$PROJECT/reviews" \
@@ -804,7 +617,7 @@ curl -s -X POST "http://localhost/api/projects/$PROJECT/reviews" \
 
 Deve retornar status 201 com o review e seus 6 findings.
 
-### 12.4 — Verificar status do review (poll)
+### 10.4 — Verificar status do review (poll)
 
 ```bash
 curl -s "http://localhost/api/reviews/1" \
@@ -813,14 +626,14 @@ curl -s "http://localhost/api/reviews/1" \
 
 Deve retornar `"Pending"` (muda para `"Completed"` quando o Agent termina).
 
-### 12.5 — Listar projetos
+### 10.5 — Listar projetos
 
 ```bash
 curl -s "http://localhost/api/projects" \
   -H "Authorization: Bearer $TOKEN" | jq '.data[].name'
 ```
 
-### 12.6 — Listar melhorias de um projeto
+### 10.6 — Listar melhorias de um projeto
 
 ```bash
 curl -s "http://localhost/api/projects/$PROJECT/improvements" \
@@ -840,7 +653,7 @@ curl -s "http://localhost/api/projects/$PROJECT/improvements" \
 
 ---
 
-## Passo 13 — Commitar e criar PR
+## Passo 12 — Commitar e criar PR
 
 ```bash
 cd ~/laravel_ai
@@ -851,7 +664,7 @@ git commit -m "feat: generate Swagger docs and add curl test examples"
 git push -u origin feat/cap13-api
 
 # Criar Pull Request
-gh pr create --title "feat: API REST e Swagger" --body "Capitulo 13 - API REST com Sanctum, controllers OpenAPI, ProjectPolicy, rotas e documentacao Swagger"
+gh pr create --title "feat: API REST e Swagger" --body "Capitulo 13 - API REST com Sanctum, controllers, ProjectPolicy, rotas e documentacao Scramble"
 
 # Apos merge do PR no GitHub:
 git checkout main
@@ -864,15 +677,16 @@ git pull
 
 | Arquivo | O que faz |
 |---------|-----------|
-| `config/l5-swagger.php` | Configuracao do Swagger (rota, info, security) |
-| `app/Http/Controllers/Controller.php` | Annotation base OA\Info e OA\SecurityScheme |
+| `config/scramble.php` | Configuracao do Scramble (titulo, versao, descricao) |
+| `app/Providers/AppServiceProvider.php` | Configura Bearer token na documentacao |
 | `app/Http/Controllers/Api/AuthController.php` | Endpoint POST /api/auth/token (Sanctum) |
 | `app/Http/Controllers/Api/ProjectController.php` | CRUD de projetos (index, store, show, destroy) |
 | `app/Http/Controllers/Api/CodeReviewController.php` | Criar review (store) e consultar status (show) |
 | `app/Http/Controllers/Api/ImprovementController.php` | Listar melhorias (index) e mover no Kanban (update) |
-| `app/Http/Resources/Schemas/ProjectSchema.php` | Schema OpenAPI do model Project |
 | `app/Policies/ProjectPolicy.php` | Autorizacao: view, update, delete por dono |
 | `routes/api.php` | Rotas da API com middleware auth:sanctum |
+
+> **Scramble vs L5-Swagger:** O Scramble nao precisa de anotacoes PHP — ele gera a documentacao lendo o codigo. Isso significa menos boilerplate e documentacao sempre atualizada automaticamente.
 
 ## Proximo capitulo
 
