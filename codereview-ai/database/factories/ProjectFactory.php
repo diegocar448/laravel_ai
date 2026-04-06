@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\ProjectStatusEnum;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -11,10 +12,16 @@ class ProjectFactory extends Factory
     {
         return [
             'user_id' => User::factory(),
-            'project_status_id' => 1,
-            'name' => $this->faker->words(3, true),
-            'language' => 'PHP',
-            'code_snippet' => '<?php echo "hello";',
+            'project_status_id' => ProjectStatusEnum::Active->value,
+            'name' => fake()->words(3, true),
+            'language' => fake()->randomElement(['php', 'javascript', 'python', 'typescript']),
+            'code_snippet' => fake()->text(500),
+            'repository_url' => fake()->optional()->url(),
         ];
+    }
+
+    public function completed(): static
+    {
+        return $this->state(['project_status_id' => ProjectStatusEnum::Completed->value]);
     }
 }

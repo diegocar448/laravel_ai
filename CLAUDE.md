@@ -74,6 +74,10 @@ public function handle(Request $request): string   // NÃO execute(array)
 - Gemini rate limit: ~15 req/min no free tier, cota diária reseta às 05:00 BRT
 - pgvector HNSW: máximo 2000 dims — usar `->dimensions(768)` para truncar
 - `$event->agent` não existe em `AgentPrompted` — usar `$event->prompt->agent`
+- Tools com `schema(): ToolSchema` (API antiga) causam fatal error no PHP 8.5 — usar `schema(JsonSchema $schema): array` e `handle(Request $request): string`
+- Rotas `/login` e `/register` são Livewire Volt (só GET) — testar com `Volt::test()` não `$this->post()`
+- Scramble restringe docs a env `local` — em testes usar `Gate::before(fn () => true)` + `actingAs`
+- Em Pest 4, usar `pest()->extend()->beforeEach()->in()` encadeado — `beforeEach()->in()` standalone não funciona
 
 ## Como rodar
 
@@ -91,4 +95,4 @@ sail artisan test
 
 Cada capítulo em `docs/NN-nome.md` cobre um passo do tutorial.
 Quando Diego encontra erro ao seguir o passo, corrijo o código E o `.md` correspondente.
-Capítulo atual: **12-deploy-docker.md**
+Capítulo atual: **14-testes.md** (concluído)
