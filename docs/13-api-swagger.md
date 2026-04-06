@@ -61,7 +61,7 @@ return [
 ];
 ```
 
-Adicione a configuracao de seguranca (Bearer token) no `AppServiceProvider`:
+Adicione a configuracao de seguranca (Bearer token) no `AppServiceProvider` — mantenha o `Volt::mount` existente e adicione o bloco do Scramble:
 
 ```php
 <?php
@@ -72,13 +72,23 @@ use Dedoc\Scramble\Scramble;
 use Dedoc\Scramble\Support\Generator\OpenApi;
 use Dedoc\Scramble\Support\Generator\SecurityScheme;
 use Illuminate\Support\ServiceProvider;
+use Livewire\Volt\Volt;
 
 class AppServiceProvider extends ServiceProvider
 {
+    public function register(): void
+    {
+        //
+    }
+
     public function boot(): void
     {
+        Volt::mount([
+            resource_path('views'),
+        ]);
+
         Scramble::configure()
-            ->withDocumentTransformer(function (OpenApi $openApi) {
+            ->afterOpenApiGenerated(function (OpenApi $openApi) {
                 $openApi->secure(
                     SecurityScheme::http('bearer')
                         ->setDescription('Token Sanctum via POST /api/auth/token')
@@ -87,6 +97,8 @@ class AppServiceProvider extends ServiceProvider
     }
 }
 ```
+
+> Apos essa configuracao, a UI do Scramble exibira um botao **Authorize** no topo para inserir o Bearer token antes de testar endpoints protegidos.
 
 ```bash
 # Commitar
@@ -126,7 +138,35 @@ git commit -m "feat: install Sanctum and run api migration"
 
 ---
 
-## Passo 3 — Criar o AuthController (token endpoint)
+## Passo 3 — Corrigir o Controller base
+
+O `Controller.php` base precisa ter a trait `AuthorizesRequests` para que os controllers da API possam usar `$this->authorize()`:
+
+Edite `app/Http/Controllers/Controller.php`:
+
+```php
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+
+abstract class Controller
+{
+    use AuthorizesRequests;
+}
+```
+
+```bash
+# Commitar
+cd ~/laravel_ai
+git add .
+git commit -m "feat: fix Controller base with AuthorizesRequests"
+```
+
+---
+
+## Passo 4 — Criar o AuthController (token endpoint)
 
 ```bash
 sail artisan make:controller Api/AuthController
@@ -181,7 +221,7 @@ git commit -m "feat: add AuthController with Sanctum token endpoint"
 
 ---
 
-## Passo 4 — Criar a ProjectPolicy
+## Passo 5 — Criar a ProjectPolicy
 
 A `ProjectPolicy` garante que somente o dono do projeto pode visualiza-lo, edita-lo ou deleta-lo. Se ainda nao existe no projeto, crie-a:
 
@@ -232,7 +272,7 @@ git commit -m "feat: add ProjectPolicy for authorization"
 
 ---
 
-## Passo 5 — Criar o ProjectController da API
+## Passo 6 — Criar o ProjectController da API
 
 ```bash
 sail artisan make:controller Api/ProjectController
@@ -313,7 +353,7 @@ git commit -m "feat: add API ProjectController"
 
 ---
 
-## Passo 6 — Criar o CodeReviewController da API
+## Passo 7 — Criar o CodeReviewController da API
 
 ```bash
 sail artisan make:controller Api/CodeReviewController
@@ -406,7 +446,7 @@ git commit -m "feat: add API CodeReviewController"
 
 ---
 
-## Passo 7 — Criar o ImprovementController da API
+## Passo 8 — Criar o ImprovementController da API
 
 ```bash
 sail artisan make:controller Api/ImprovementController
@@ -466,7 +506,7 @@ git commit -m "feat: add API ImprovementController"
 
 ---
 
-## Passo 8 — Configurar as rotas da API
+## Passo 9 — Configurar as rotas da API
 
 Edite `routes/api.php`:
 
@@ -511,7 +551,7 @@ git commit -m "feat: add API routes with Sanctum middleware"
 
 ---
 
-## Passo 9 — Verificar a documentacao Swagger
+## Passo 10 — Verificar a documentacao Swagger
 
 Acesse a documentacao interativa no navegador:
 
@@ -525,7 +565,7 @@ Voce deve ver a interface Swagger UI com todos os endpoints organizados automati
 
 ---
 
-## Passo 10 — Testar a API com curl
+## Passo 11 — Testar a API com curl
 
 Vamos testar o fluxo completo via terminal. Certifique-se de ter um usuario no banco (crie pelo formulario da interface ou pelo Tinker).
 
@@ -539,6 +579,8 @@ TOKEN=$(curl -s -X POST http://localhost/api/auth/token \
 
 echo $TOKEN
 ```
+
+> **O que e `device_name`?** E um nome livre para identificar o token no banco (ex: `"curl"`, `"github-actions"`, `"meu-app"`). Aparece na tabela `personal_access_tokens` e ajuda a revogar tokens por dispositivo.
 
 Deve retornar um token longo. Se retornar `null`, verifique se o usuario existe e a senha esta correta.
 
@@ -611,7 +653,7 @@ curl -s "http://localhost/api/projects/$PROJECT/improvements" \
 
 ---
 
-## Passo 11 — Commitar e criar PR
+## Passo 12 — Commitar e criar PR
 
 ```bash
 cd ~/laravel_ai
