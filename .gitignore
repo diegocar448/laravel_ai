@@ -25,3 +25,7 @@ docker/volumes/
 .env.backup
 .env.production
 .env.local
+
+# AWS CLI installer
+codereview-ai/aws/
+codereview-ai/awscliv2.zip

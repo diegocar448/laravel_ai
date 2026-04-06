@@ -198,7 +198,6 @@ RUN apk add --no-cache \
         pgsql \
         zip \
         intl \
-        opcache \
         pcntl
 
 # Configurar OPcache para producao
@@ -244,14 +243,35 @@ RUN chown -R www-data:www-data storage bootstrap/cache
 
 EXPOSE 80
 
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+CMD ["/entrypoint.sh"]
 ```
+
+Crie `docker/entrypoint.sh`:
+
+```bash
+#!/bin/sh
+set -e
+
+# Regenerar caches com as variaveis de ambiente do container
+php /var/www/html/artisan config:cache > /dev/null 2>&1
+php /var/www/html/artisan route:cache > /dev/null 2>&1
+php /var/www/html/artisan view:cache > /dev/null 2>&1
+php /var/www/html/artisan event:cache > /dev/null 2>&1
+
+# Iniciar Supervisor
+exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
+```
+
+> **Por que o entrypoint?** O `config:cache` gerado durante o build usa variaveis padrao (sem `.env`). O entrypoint regenera os caches ao iniciar o container com as variaveis reais do `--env-file`. Sem isso, o Laravel tenta usar Redis (padrao) em vez de database para cache/session/queue e o container falha.
+
+> **Por que `> /dev/null`?** O output do `artisan` corromperia os headers HTTP se fosse para stdout antes do Nginx processar a primeira request.
 
 **Pontos importantes:**
 - `COPY package.json package-lock.json ./` primeiro — aproveita cache de camadas do Docker
 - `composer install --no-dev` — nao instala dependencias de desenvolvimento em producao
 - `validate_timestamps=0` — OPcache nao verifica se arquivos mudaram (mais rapido em producao)
 - `pm = static` com `max_children = 20` — pool fixo de workers PHP-FPM para performance previsivel
+- `mkdir -p /var/log/supervisor` — diretorio necessario para o Supervisor gravar logs (nao existe por padrao no alpine)
 
 ```bash
 # Commitar Dockerfile
@@ -411,22 +431,369 @@ docker compose -f compose-prod.yaml down
 
 ---
 
-## Passo 7 — Deploy na AWS (conceito)
+## Passo 7 — Deploy na AWS
 
-Para deploy em producao na AWS, o fluxo e:
+Duas opcoes dependendo do seu objetivo:
+
+| | Opcao A: EC2 + Docker | Opcao B: ECS Fargate |
+|--|----------------------|---------------------|
+| **Custo** | Gratis (free tier t3.micro) | ~$15-30/mes |
+| **Gerenciamento** | Voce cuida do SO e Docker | AWS gerencia tudo |
+| **Complexidade** | Maior (SSH, updates) | Menor |
+| **Ideal para** | Aprendizado, projetos pessoais | Producao com escala |
+
+---
+
+### Opcao A — EC2 + Docker (Free Tier)
+
+#### 7.A.1 — Criar conta AWS e configurar alertas de faturamento
+
+Acesse [aws.amazon.com](https://aws.amazon.com) e crie uma conta gratuita. Voce precisara de cartao de credito para cadastro, mas o free tier **nao cobra** enquanto estiver dentro dos limites.
+
+> **Free Tier t3.micro:** 750 horas/mes por 12 meses. Uma instancia rodando 24/7 usa exatamente 720h/mes — dentro do limite.
+
+Apos criar a conta, configure alertas de faturamento para evitar surpresas:
+
+1. Acesse **Billing and Cost Management** no menu do usuario (canto superior direito)
+2. Clique em **Alertas e notificacoes** → **Criar alerta de uso de cobrança**
+3. Configure um alerta para $1 — qualquer cobrança inesperada vai te notificar
+
+#### 7.A.2 — Criar instancia EC2
+
+No console AWS, busque por **EC2** na barra de pesquisa e acesse o servico.
+
+1. Clique em **Instancias** no menu lateral → **Executar instancias**
+
+2. Preencha as configuracoes:
+   - **Nome:** `codereview-ai`
+   - **AMI:** Amazon Linux 2023 (elegivel para free tier)
+   - **Tipo de instancia:** `t3.micro` (elegivel para free tier)
+   - **Par de chaves:** Clique em **Criar novo par de chaves**
+     - Nome: `codereview-ai-key`
+     - Tipo: RSA
+     - Formato: `.pem`
+     - Salve o arquivo em `~/.ssh/codereview-ai-key.pem`
+
+3. Em **Configuracoes de rede**, clique em **Editar** e adicione regras:
+   - Regra 1: SSH (porta 22) — Origem: `Meu IP`
+   - Regra 2: HTTP (porta 80) — Origem: `Qualquer lugar (0.0.0.0/0)`
+
+4. Clique em **Executar instancia**
+
+Apos alguns segundos, a instancia aparece no painel com estado **Executando**. Anote o **Endereco IPv4 publico** — voce vai usar bastante.
+
+> **Hibernar vs Parar:** Quando precisar parar de usar, clique em **Estado da instancia → Parar**. O disco e preservado (sem custo adicional no free tier). Ao parar, o IP publico muda — isso e normal.
+
+#### 7.A.3 — Conectar via SSH e instalar Docker
+
+No seu terminal WSL2 (ou PowerShell no Windows):
+
+```bash
+# Dar permissao correta para a chave
+chmod 400 ~/.ssh/codereview-ai-key.pem
+
+# Conectar na instancia (substitua pelo IP publico da sua instancia)
+ssh -i ~/.ssh/codereview-ai-key.pem ec2-user@<IP_PUBLICO>
+```
+
+Dentro da instancia, instale o Docker:
+
+```bash
+sudo yum update -y
+sudo yum install -y docker
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo usermod -aG docker ec2-user
+```
+
+Desconecte e reconecte para as permissoes do grupo `docker` entrarem em vigor:
+
+```bash
+exit
+ssh -i ~/.ssh/codereview-ai-key.pem ec2-user@<IP_PUBLICO>
+
+# Verificar que Docker esta funcionando
+docker ps
+```
+
+Deve retornar a lista vazia (sem erro):
+
+```
+CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES
+```
+
+#### 7.A.4 — Instalar AWS CLI v2 na instancia EC2
+
+```bash
+# Ainda dentro da instancia EC2
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip
+sudo ./aws/install
+
+# Verificar instalacao
+aws --version
+# aws-cli/2.x.x Python/3.x.x Linux/...
+```
+
+#### 7.A.5 — Criar usuario IAM para acesso CLI
+
+Por seguranca, nunca use as credenciais do usuario root da AWS no CLI. Crie um usuario IAM dedicado:
+
+1. No console AWS, busque **IAM** → **Users** → **Criar usuario**
+
+2. Configure o usuario:
+   - **Nome:** `codereview-ai-deploy`
+   - Marque **Fornecer acesso de usuario ao Console AWS**: NAO (so precisamos de acesso CLI)
+   - Clique em **Proximo**
+
+3. Em **Definir permissoes**, escolha **Anexar politicas diretamente** e adicione:
+   - Na barra de busca, pesquise `AmazonEC2ContainerRegistryFullAccess` e marque o checkbox
+   - Limpe a busca, pesquise `AmazonEC2FullAccess` e marque o checkbox
+   - Com as 2 politicas marcadas (2/1474), clique em **Proximo**
+
+4. Em **Revisar e criar**, confira as 2 politicas listadas e clique em **Criar usuario**
+
+5. Clique no usuario criado → **Credenciais de seguranca** → **Criar chave de acesso**
+   - Escolha **Interface de linha de comando (CLI)**
+   - Confirme o aviso e clique em **Proximo**
+   - Clique em **Criar chave de acesso**
+
+6. **IMPORTANTE:** Copie o **Access Key ID** e clique em **Mostrar** para ver o **Secret Access Key**. Voce so vera o Secret uma vez — anote os dois antes de fechar a tela.
+
+> **Guarde suas credenciais com cuidado.** Nunca commite o Access Key em repositorios Git. Use `.gitignore` ou variaveis de ambiente.
+
+#### 7.A.6 — Configurar AWS CLI no seu computador (WSL2)
+
+No terminal WSL2 do seu computador (nao na instancia EC2):
+
+```bash
+aws configure
+```
+
+Preencha com as informacoes:
+
+```
+AWS Access Key ID [None]: AKIA...          # Cole o Access Key ID do passo anterior
+AWS Secret Access Key [None]: ...          # Cole o Secret Access Key
+Default region name [None]: us-east-2     # Regiao Ohio (onde criamos a instancia)
+Default output format [None]: json
+```
+
+Confirme que funcionou:
+
+```bash
+aws sts get-caller-identity
+```
+
+Deve retornar algo como:
+
+```json
+{
+    "UserId": "AIDA...",
+    "Account": "<ACCOUNT_ID>",
+    "Arn": "arn:aws:iam::<ACCOUNT_ID>:user/codereview-ai-deploy"
+}
+```
+
+#### 7.A.7 — Criar repositorio no ECR e enviar a imagem
+
+> **Terminal:** WSL2 (seu computador), dentro de `codereview-ai/`
+
+O **ECR (Elastic Container Registry)** e o repositorio privado de imagens Docker da AWS.
+
+```bash
+# Criar repositorio no ECR (na regiao us-east-2)
+aws ecr create-repository \
+    --repository-name codereview-ai \
+    --region us-east-2
+```
+
+Retornara um JSON com a URL do repositorio. Anote o campo `repositoryUri`:
+
+```
+<ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/codereview-ai
+```
+
+Agora faca o build e o push — **todos esses comandos rodam no WSL2**:
+
+```bash
+# Build da imagem (dentro de codereview-ai/)
+docker build -t codereview-ai:latest .
+
+# Login no ECR
+aws ecr get-login-password --region us-east-2 \
+    | docker login --username AWS --password-stdin \
+      <ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com
+
+# Tag da imagem com a URL do ECR
+docker tag codereview-ai:latest \
+    <ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/codereview-ai:latest
+
+# Push para o ECR
+docker push \
+    <ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/codereview-ai:latest
+```
+
+#### 7.A.8 — Configurar e rodar os containers na EC2
+
+> **Terminal:** Abra um **novo terminal WSL2** (nao o mesmo onde fez o build) e conecte na EC2:
+
+```bash
+# Pegue o IP atual no console AWS > EC2 > Instancias > Endereco IPv4 publico
+ssh -i ~/.ssh/codereview-ai-key.pem ec2-user@<IP_PUBLICO>
+```
+
+> **Atencao:** o IP publico muda toda vez que a instancia e parada e reiniciada. Sempre pegue o valor atualizado no console AWS antes de conectar.
+
+A partir daqui, **todos os comandos rodam dentro da instancia EC2**:
+
+Configure o AWS CLI na instancia com as mesmas credenciais do passo 7.A.6:
+
+```bash
+aws configure
+# Preencha com o mesmo Access Key ID, Secret, regiao us-east-2, formato json
+```
+
+Crie uma rede Docker para os containers se comunicarem:
+
+```bash
+docker network create codereview-net
+```
+
+Suba o container do PostgreSQL com pgvector:
+
+```bash
+docker run -d \
+    --name pgsql \
+    --network codereview-net \
+    -e POSTGRES_DB=codereview \
+    -e POSTGRES_USER=postgres \
+    -e POSTGRES_PASSWORD=password \
+    -v pgdata:/var/lib/postgresql \
+    pgvector/pgvector:pg18
+```
+
+> **Importante:** Use `/var/lib/postgresql` (sem `/data`) no volume — o pgvector pg18+ requer esse caminho.
+
+Crie o arquivo `.env` de producao:
+
+```bash
+cat > .env << 'EOF'
+APP_ENV=production
+APP_DEBUG=false
+APP_KEY=base64:...        # gere com: php artisan key:generate --show
+APP_URL=http://<IP_PUBLICO>
+DB_CONNECTION=pgsql
+DB_HOST=pgsql             # nome do container na rede Docker
+DB_PORT=5432
+DB_DATABASE=codereview
+DB_USERNAME=postgres
+DB_PASSWORD=password
+GEMINI_API_KEY=<SUA_GEMINI_KEY>
+AI_PROVIDER=gemini
+QUEUE_CONNECTION=database
+CACHE_STORE=database
+SESSION_DRIVER=database
+EOF
+```
+
+> **Atencao:** Inclua sempre `CACHE_STORE=database` e `SESSION_DRIVER=database`. Sem esses valores, o Laravel tenta usar Redis (padrao) e o container falha pois nao ha Redis configurado.
+
+Faca o login no ECR, pull da imagem e rode o container da app:
 
 ```bash
 # Login no ECR
-aws ecr get-login-password | docker login --username AWS --password-stdin <account>.dkr.ecr.<region>.amazonaws.com
+aws ecr get-login-password --region us-east-2 \
+    | docker login --username AWS --password-stdin \
+      <ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com
 
-# Tag e push
-docker tag codereview-ai:latest <account>.dkr.ecr.<region>.amazonaws.com/codereview-ai:latest
-docker push <account>.dkr.ecr.<region>.amazonaws.com/codereview-ai:latest
+# Pull da imagem
+docker pull <ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/codereview-ai:latest
 
-# Deploy via ECS, EKS ou App Runner
+# Rodar o container da app na mesma rede do banco
+docker run -d \
+    --name codereview-ai \
+    --network codereview-net \
+    -p 80:80 \
+    --env-file .env \
+    --restart unless-stopped \
+    <ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/codereview-ai:latest
 ```
 
-> Este e um exemplo conceitual. No Capitulo 13 vamos detalhar a API REST com Sanctum e Swagger. A infraestrutura completa com Terraform sera abordada em capitulos futuros.
+Aguarde ~10 segundos para o banco inicializar e rode as migrations e publique os assets do Livewire:
+
+```bash
+sleep 10 && docker exec codereview-ai php artisan migrate --force
+docker exec codereview-ai php artisan livewire:publish --assets
+docker exec codereview-ai php artisan storage:link
+```
+
+#### 7.A.9 — Verificar o deploy
+
+```bash
+# Ver logs do container
+docker logs codereview-ai --tail=20
+
+# Testar health check (da instancia EC2)
+curl http://localhost/health
+# {"status":"ok"}
+
+# Testar de fora (no seu computador WSL2)
+curl http://<IP_PUBLICO>/health
+# {"status":"ok"}
+```
+
+> **Importante:** Sempre que alterar o `.env` na EC2, use `docker stop/rm` + `docker run` para recriar o container. O `docker restart` **nao relê** o `--env-file` — ele usa as variaveis do momento em que o container foi criado pela primeira vez.
+
+Acesse `http://<IP_PUBLICO>` no navegador — a aplicacao deve estar rodando.
+
+> **Lembrete:** O IP publico muda toda vez que voce para e reinicia a instancia. Para um IP fixo, use um **Elastic IP** (gratuito enquanto associado a uma instancia rodando).
+
+> **Para parar sem cobrar:** No console AWS, selecione a instancia → **Estado da instancia** → **Interromper**. O disco e preservado e nao ha cobrança de compute enquanto parada.
+
+---
+
+### Opcao B — ECS Fargate (Producao)
+
+**1. Build e push para ECR:**
+
+```bash
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <account>.dkr.ecr.us-east-1.amazonaws.com
+docker tag codereview-ai:latest <account>.dkr.ecr.us-east-1.amazonaws.com/codereview-ai:latest
+docker push <account>.dkr.ecr.us-east-1.amazonaws.com/codereview-ai:latest
+```
+
+**2. Criar Task Definition no ECS:**
+
+```json
+{
+  "family": "codereview-ai",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "containerDefinitions": [{
+    "name": "app",
+    "image": "<account>.dkr.ecr.us-east-1.amazonaws.com/codereview-ai:latest",
+    "portMappings": [{ "containerPort": 80 }],
+    "environment": [
+      { "name": "APP_ENV", "value": "production" }
+    ]
+  }]
+}
+```
+
+**3. Criar Service e aguardar deploy:**
+
+```bash
+# Via console AWS: ECS -> Clusters -> Create Service
+# Launch type: FARGATE
+# Task definition: codereview-ai
+# Desired tasks: 1
+# Load balancer: Application Load Balancer (opcional)
+```
+
+> A infraestrutura completa com Terraform (VPC, RDS, ElastiCache, ECS) sera abordada em capitulos futuros.
 
 ---
 
@@ -475,10 +842,19 @@ git pull
 | Arquivo | O que faz |
 |---------|-----------|
 | `docker/nginx/default.conf` | Configuracao Nginx: proxy reverso para PHP-FPM, cache de assets |
-| `docker/supervisor/supervisord.conf` | Supervisor: gerencia PHP-FPM, Nginx e queue workers |
+| `docker/supervisor/supervisord.conf` | Supervisor: gerencia PHP-FPM, Nginx e 2 queue workers |
 | `Dockerfile` | Multi-stage build: Node.js compila assets, PHP-FPM roda a app |
 | `compose-prod.yaml` | Docker Compose de producao: app + PostgreSQL com pgvector |
 | `routes/web.php` (editado) | Rota `/health` para load balancers e orquestradores |
+
+**Infraestrutura AWS (Opcao A — Free Tier):**
+
+| Recurso | Servico AWS | Custo |
+|---------|------------|-------|
+| Servidor | EC2 t3.micro | Gratis (750h/mes por 12 meses) |
+| Imagem Docker | ECR | Gratis (500MB/mes) |
+| Rede | VPC padrao | Gratis |
+| IP publico | IPv4 dinamico | Gratis enquanto instancia rodando |
 
 ---
 
