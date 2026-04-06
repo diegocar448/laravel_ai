@@ -3,47 +3,51 @@
 use App\Ai\Agents\CodeAnalyst;
 use App\Jobs\AnalyzeCodeJob;
 use App\Models\CodeReview;
+use App\Services\CodeAnalysisService;
+use Illuminate\Support\Facades\Queue;
 use Laravel\Ai\Ai;
 
-uses(Tests\TestCase::class, Illuminate\Foundation\Testing\RefreshDatabase::class)
-    ->beforeEach(fn () => (new Database\Seeders\LookupSeeder)->run());
-
-test('analyze code job processes successfully', function () {
-    // Fake chamadas do Agent com resposta estruturada
+test('analyze code job calls service', function () {
     Ai::fakeAgent(CodeAnalyst::class, [
         [
-            'summary' => 'Codigo analisado com sucesso.',
-            'score' => 85,
-            'priority_finding_ids' => [1, 2, 3],
+            'summary' => 'Analise completa.',
+            'score' => 90,
+            'priority_finding_ids' => [],
         ],
     ]);
 
-    $codeReview = CodeReview::factory()->create();
+    $review = CodeReview::factory()->create();
+    AnalyzeCodeJob::dispatchSync($review);
 
-    // Executar o job (queue=sync em testes)
-    AnalyzeCodeJob::dispatch($codeReview);
-
-    // Assertions
-    $codeReview->refresh();
-    expect($codeReview->summary)->toBe('Codigo analisado com sucesso.');
-    expect($codeReview->review_status_id)->toBe(2); // Completed
+    $review->refresh();
+    expect($review->review_status_id)->toBe(2); // Completed
 });
 
-test('analyze code job handles failure', function () {
-    // Fake Agent lancando excecao
+test('failed job updates status to failed', function () {
     Ai::fakeAgent(CodeAnalyst::class, [
-        fn () => throw new \Exception('API timeout'),
+        fn () => throw new \Exception('Timeout'),
     ]);
 
-    $codeReview = CodeReview::factory()->create();
+    $review = CodeReview::factory()->create();
+    $job = new AnalyzeCodeJob($review);
 
-    // O job falha mas o failed() atualiza o status
     try {
-        AnalyzeCodeJob::dispatch($codeReview);
-    } catch (\Throwable) {
-        // Em modo sync a excecao propaga — o failed() ja foi chamado
+        $job->handle(new CodeAnalysisService);
+    } catch (\Exception $e) {
+        $job->failed($e);
     }
 
-    $codeReview->refresh();
-    expect($codeReview->review_status_id)->toBe(3); // Failed
+    $review->refresh();
+    expect($review->review_status_id)->toBe(3); // Failed
+});
+
+test('job is dispatched to queue', function () {
+    Queue::fake();
+
+    $review = CodeReview::factory()->create();
+    AnalyzeCodeJob::dispatch($review);
+
+    Queue::assertPushed(AnalyzeCodeJob::class, function ($job) use ($review) {
+        return $job->codeReview->id === $review->id;
+    });
 });

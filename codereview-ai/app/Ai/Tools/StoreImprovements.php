@@ -4,8 +4,9 @@ namespace App\Ai\Tools;
 
 use App\Models\Improvement;
 use App\Models\Project;
+use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Ai\Contracts\Tool;
-use Laravel\Ai\Contracts\ToolSchema;
+use Laravel\Ai\Tools\Request;
 
 class StoreImprovements implements Tool
 {
@@ -13,25 +14,25 @@ class StoreImprovements implements Tool
         private Project $project,
     ) {}
 
-    public function name(): string
-    {
-        return 'store_improvements';
-    }
-
     public function description(): string
     {
         return 'Persist the generated improvements to the database as a Kanban board.';
     }
 
-    public function schema(): ToolSchema
+    public function schema(JsonSchema $schema): array
     {
-        return ToolSchema::make()
-            ->array('improvements', 'List of improvements to save');
+        return [
+            'improvements' => $schema->array()
+                ->description('List of improvements to save')
+                ->required(),
+        ];
     }
 
-    public function execute(array $parameters): string
+    public function handle(Request $request): string
     {
-        foreach ($parameters['improvements'] as $index => $data) {
+        $improvements = $request->input('improvements', []);
+
+        foreach ($improvements as $index => $data) {
             Improvement::create([
                 'project_id' => $this->project->id,
                 'improvement_type_id' => $data['improvement_type_id'] ?? 1,
@@ -44,6 +45,6 @@ class StoreImprovements implements Tool
             ]);
         }
 
-        return "Salvas " . count($parameters['improvements']) . " melhorias com sucesso.";
+        return 'Salvas ' . count($improvements) . ' melhorias com sucesso.';
     }
 }
