@@ -70,6 +70,10 @@ RUN php artisan config:cache \
 COPY docker/nginx/default.conf /etc/nginx/http.d/default.conf
 COPY docker/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
+# Entrypoint que regenera caches com as variaveis de ambiente do container
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 # Diretorios necessarios
 RUN mkdir -p /var/log/supervisor
 
@@ -78,4 +82,4 @@ RUN chown -R www-data:www-data storage bootstrap/cache
 
 EXPOSE 80
 
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+CMD ["/entrypoint.sh"]

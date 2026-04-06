@@ -243,14 +243,35 @@ RUN chown -R www-data:www-data storage bootstrap/cache
 
 EXPOSE 80
 
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+CMD ["/entrypoint.sh"]
 ```
+
+Crie `docker/entrypoint.sh`:
+
+```bash
+#!/bin/sh
+set -e
+
+# Regenerar caches com as variaveis de ambiente do container
+php /var/www/html/artisan config:cache > /dev/null 2>&1
+php /var/www/html/artisan route:cache > /dev/null 2>&1
+php /var/www/html/artisan view:cache > /dev/null 2>&1
+php /var/www/html/artisan event:cache > /dev/null 2>&1
+
+# Iniciar Supervisor
+exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
+```
+
+> **Por que o entrypoint?** O `config:cache` gerado durante o build usa variaveis padrao (sem `.env`). O entrypoint regenera os caches ao iniciar o container com as variaveis reais do `--env-file`. Sem isso, o Laravel tenta usar Redis (padrao) em vez de database para cache/session/queue e o container falha.
+
+> **Por que `> /dev/null`?** O output do `artisan` corromperia os headers HTTP se fosse para stdout antes do Nginx processar a primeira request.
 
 **Pontos importantes:**
 - `COPY package.json package-lock.json ./` primeiro — aproveita cache de camadas do Docker
 - `composer install --no-dev` — nao instala dependencias de desenvolvimento em producao
 - `validate_timestamps=0` — OPcache nao verifica se arquivos mudaram (mais rapido em producao)
 - `pm = static` com `max_children = 20` — pool fixo de workers PHP-FPM para performance previsivel
+- `mkdir -p /var/log/supervisor` — diretorio necessario para o Supervisor gravar logs (nao existe por padrao no alpine)
 
 ```bash
 # Commitar Dockerfile
@@ -613,12 +634,12 @@ docker push \
     <ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/codereview-ai:latest
 ```
 
-#### 7.A.8 — Configurar AWS CLI na instancia EC2 e rodar o container
+#### 7.A.8 — Configurar e rodar os containers na EC2
 
-> **Terminal:** SSH na instancia EC2 — abra um novo terminal e conecte:
+> **Terminal:** Abra um **novo terminal WSL2** (nao o mesmo onde fez o build) e conecte na EC2:
 
 ```bash
-# No WSL2, conecte na EC2 (pegue o IP atual no console AWS > EC2 > Instancias)
+# Pegue o IP atual no console AWS > EC2 > Instancias > Endereco IPv4 publico
 ssh -i ~/.ssh/codereview-ai-key.pem ec2-user@<IP_PUBLICO>
 ```
 
@@ -633,7 +654,52 @@ aws configure
 # Preencha com o mesmo Access Key ID, Secret, regiao us-east-2, formato json
 ```
 
-Faca o pull da imagem e rode o container:
+Crie uma rede Docker para os containers se comunicarem:
+
+```bash
+docker network create codereview-net
+```
+
+Suba o container do PostgreSQL com pgvector:
+
+```bash
+docker run -d \
+    --name pgsql \
+    --network codereview-net \
+    -e POSTGRES_DB=codereview \
+    -e POSTGRES_USER=postgres \
+    -e POSTGRES_PASSWORD=password \
+    -v pgdata:/var/lib/postgresql \
+    pgvector/pgvector:pg18
+```
+
+> **Importante:** Use `/var/lib/postgresql` (sem `/data`) no volume — o pgvector pg18+ requer esse caminho.
+
+Crie o arquivo `.env` de producao:
+
+```bash
+cat > .env << 'EOF'
+APP_ENV=production
+APP_DEBUG=false
+APP_KEY=base64:...        # gere com: php artisan key:generate --show
+APP_URL=http://<IP_PUBLICO>
+DB_CONNECTION=pgsql
+DB_HOST=pgsql             # nome do container na rede Docker
+DB_PORT=5432
+DB_DATABASE=codereview
+DB_USERNAME=postgres
+DB_PASSWORD=password
+GEMINI_API_KEY=<SUA_GEMINI_KEY>
+AI_PROVIDER=gemini
+QUEUE_CONNECTION=database
+CACHE_STORE=database
+SESSION_DRIVER=database
+EOF
+```
+
+> **Atencao:** Inclua sempre `CACHE_STORE=database` e `SESSION_DRIVER=database`. Sem esses valores, o Laravel tenta usar Redis (padrao) e o container falha pois nao ha Redis configurado.
+
+Faca o login no ECR, pull da imagem e rode o container da app:
 
 ```bash
 # Login no ECR
@@ -644,49 +710,46 @@ aws ecr get-login-password --region us-east-2 \
 # Pull da imagem
 docker pull <ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/codereview-ai:latest
 
-# Criar arquivo .env de producao
-cat > .env << 'EOF'
-APP_ENV=production
-APP_DEBUG=false
-APP_KEY=base64:...   # gere com: php artisan key:generate --show
-DB_CONNECTION=pgsql
-DB_HOST=<IP_DO_BANCO>
-DB_PORT=5432
-DB_DATABASE=codereview
-DB_USERNAME=postgres
-DB_PASSWORD=<SENHA_SEGURA>
-GEMINI_API_KEY=<SUA_GEMINI_KEY>
-AI_PROVIDER=gemini
-QUEUE_CONNECTION=database
-EOF
-
-# Rodar o container
+# Rodar o container da app na mesma rede do banco
 docker run -d \
     --name codereview-ai \
+    --network codereview-net \
     -p 80:80 \
     --env-file .env \
     --restart unless-stopped \
     <ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/codereview-ai:latest
 ```
 
+Aguarde ~10 segundos para o banco inicializar e rode as migrations e publique os assets do Livewire:
+
+```bash
+sleep 10 && docker exec codereview-ai php artisan migrate --force
+docker exec codereview-ai php artisan livewire:publish --assets
+docker exec codereview-ai php artisan storage:link
+```
+
 #### 7.A.9 — Verificar o deploy
 
 ```bash
 # Ver logs do container
-docker logs codereview-ai -f
+docker logs codereview-ai --tail=20
 
 # Testar health check (da instancia EC2)
 curl http://localhost/health
 # {"status":"ok"}
 
-# Testar de fora (no seu computador)
+# Testar de fora (no seu computador WSL2)
 curl http://<IP_PUBLICO>/health
 # {"status":"ok"}
 ```
 
+> **Importante:** Sempre que alterar o `.env` na EC2, use `docker stop/rm` + `docker run` para recriar o container. O `docker restart` **nao relê** o `--env-file` — ele usa as variaveis do momento em que o container foi criado pela primeira vez.
+
 Acesse `http://<IP_PUBLICO>` no navegador — a aplicacao deve estar rodando.
 
 > **Lembrete:** O IP publico muda toda vez que voce para e reinicia a instancia. Para um IP fixo, use um **Elastic IP** (gratuito enquanto associado a uma instancia rodando).
+
+> **Para parar sem cobrar:** No console AWS, selecione a instancia → **Estado da instancia** → **Interromper**. O disco e preservado e nao ha cobrança de compute enquanto parada.
 
 ---
 
