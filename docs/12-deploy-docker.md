@@ -496,9 +496,10 @@ chmod 400 ~/.ssh/codereview-ai-key.pem
 ssh -i ~/.ssh/codereview-ai-key.pem ec2-user@<IP_PUBLICO>
 ```
 
-Dentro da instancia, instale o Docker:
+Dentro da instancia EC2 (após conectar via SSH), instale o Docker:
 
 ```bash
+# Todos esses comandos rodam na instancia EC2
 sudo yum update -y
 sudo yum install -y docker
 sudo systemctl start docker
@@ -675,21 +676,29 @@ docker run -d \
 
 > **Importante:** Use `/var/lib/postgresql` (sem `/data`) no volume — o pgvector pg18+ requer esse caminho.
 
-Crie o arquivo `.env` de producao:
+Gere o `APP_KEY` antes de criar o `.env`:
+
+```bash
+# Gerar APP_KEY (rode na EC2)
+docker run --rm <ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/codereview-ai:latest php artisan key:generate --show
+# Retorna algo como: base64:xYz123.../abc+def=
+```
+
+Crie o arquivo `.env` de producao substituindo todos os valores entre `<>` pelos valores reais:
 
 ```bash
 cat > .env << 'EOF'
 APP_ENV=production
 APP_DEBUG=false
-APP_KEY=base64:...        # gere com: php artisan key:generate --show
-APP_URL=http://<IP_PUBLICO>
+APP_KEY=base64:COLE_O_VALOR_GERADO_ACIMA
+APP_URL=http://COLE_O_IP_PUBLICO_DA_INSTANCIA
 DB_CONNECTION=pgsql
-DB_HOST=pgsql             # nome do container na rede Docker
+DB_HOST=pgsql
 DB_PORT=5432
 DB_DATABASE=codereview
 DB_USERNAME=postgres
 DB_PASSWORD=password
-GEMINI_API_KEY=<SUA_GEMINI_KEY>
+GEMINI_API_KEY=COLE_SUA_GEMINI_API_KEY
 AI_PROVIDER=gemini
 QUEUE_CONNECTION=database
 CACHE_STORE=database
@@ -697,12 +706,29 @@ SESSION_DRIVER=database
 EOF
 ```
 
-> **Atencao:** Inclua sempre `CACHE_STORE=database` e `SESSION_DRIVER=database`. Sem esses valores, o Laravel tenta usar Redis (padrao) e o container falha pois nao ha Redis configurado.
-
-Faca o login no ECR, pull da imagem e rode o container da app:
+Ou use `sed` para preencher cada variavel individualmente:
 
 ```bash
-# Login no ECR
+sed -i 's|APP_KEY=.*|APP_KEY=base64:COLE_O_VALOR_GERADO|' .env
+sed -i 's|APP_URL=.*|APP_URL=http://<IP_PUBLICO>|' .env
+sed -i 's|DB_HOST=.*|DB_HOST=pgsql|' .env
+sed -i 's|GEMINI_API_KEY=.*|GEMINI_API_KEY=<SUA_GEMINI_KEY>|' .env
+```
+
+Verifique se o `.env` foi criado corretamente:
+
+```bash
+cat .env
+```
+
+> **Atencao:** Nunca suba o container com valores placeholder (`base64:...`, `<IP_PUBLICO>`) — o container vai entrar em loop de restart por `APP_KEY` invalida.
+
+> **Atencao:** Inclua sempre `CACHE_STORE=database` e `SESSION_DRIVER=database`. Sem esses valores, o Laravel tenta usar Redis (padrao) e o container falha pois nao ha Redis configurado.
+
+Faca o login no ECR, pull da imagem e rode o container da app — **todos esses comandos rodam na instancia EC2**:
+
+```bash
+# Login no ECR (na EC2)
 aws ecr get-login-password --region us-east-2 \
     | docker login --username AWS --password-stdin \
       <ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com
@@ -720,13 +746,16 @@ docker run -d \
     <ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/codereview-ai:latest
 ```
 
-Aguarde ~10 segundos para o banco inicializar e rode as migrations e publique os assets do Livewire:
+Aguarde ~10 segundos para o banco inicializar e rode as migrations, seeds e publique os assets do Livewire:
 
 ```bash
 sleep 10 && docker exec codereview-ai php artisan migrate --force
+docker exec codereview-ai php artisan db:seed --class=LookupSeeder --force
 docker exec codereview-ai php artisan livewire:publish --assets
 docker exec codereview-ai php artisan storage:link
 ```
+
+> **Por que o LookupSeeder?** A tabela `project_statuses` (e outras tabelas de lookup) precisa ser populada antes de criar projetos. Sem isso, o formulario de novo projeto retorna erro 500 por violacao de chave estrangeira (`projects_project_status_id_foreign`).
 
 #### 7.A.9 — Verificar o deploy
 
@@ -807,6 +836,7 @@ Antes de colocar em producao, verifique cada item:
 - [ ] `AI_PROVIDER` definido no `.env`
 - [ ] PostgreSQL com pgvector acessivel
 - [ ] Migrations rodadas (`artisan migrate --force`)
+- [ ] Lookup tables populadas (`artisan db:seed --class=LookupSeeder`)
 - [ ] Knowledge base populada (`artisan docs:import`)
 - [ ] Assets compilados (`npm run build`)
 - [ ] Caches gerados (`config:cache`, `route:cache`, etc.)

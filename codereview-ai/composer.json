@@ -10,8 +10,10 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
+        "darkaonline/l5-swagger": "^2.1",
         "laravel/ai": "^0.4.1",
         "laravel/framework": "^13.0",
+        "laravel/sanctum": "^4.0",
         "laravel/tinker": "^3.0",
         "livewire/livewire": "^4.2",
         "livewire/volt": "^1.10",
