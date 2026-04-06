@@ -746,13 +746,16 @@ docker run -d \
     <ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/codereview-ai:latest
 ```
 
-Aguarde ~10 segundos para o banco inicializar e rode as migrations e publique os assets do Livewire:
+Aguarde ~10 segundos para o banco inicializar e rode as migrations, seeds e publique os assets do Livewire:
 
 ```bash
 sleep 10 && docker exec codereview-ai php artisan migrate --force
+docker exec codereview-ai php artisan db:seed --class=LookupSeeder --force
 docker exec codereview-ai php artisan livewire:publish --assets
 docker exec codereview-ai php artisan storage:link
 ```
+
+> **Por que o LookupSeeder?** A tabela `project_statuses` (e outras tabelas de lookup) precisa ser populada antes de criar projetos. Sem isso, o formulario de novo projeto retorna erro 500 por violacao de chave estrangeira (`projects_project_status_id_foreign`).
 
 #### 7.A.9 — Verificar o deploy
 
@@ -833,6 +836,7 @@ Antes de colocar em producao, verifique cada item:
 - [ ] `AI_PROVIDER` definido no `.env`
 - [ ] PostgreSQL com pgvector acessivel
 - [ ] Migrations rodadas (`artisan migrate --force`)
+- [ ] Lookup tables populadas (`artisan db:seed --class=LookupSeeder`)
 - [ ] Knowledge base populada (`artisan docs:import`)
 - [ ] Assets compilados (`npm run build`)
 - [ ] Caches gerados (`config:cache`, `route:cache`, etc.)
