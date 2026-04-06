@@ -70,6 +70,9 @@ RUN php artisan config:cache \
 COPY docker/nginx/default.conf /etc/nginx/http.d/default.conf
 COPY docker/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
+# Diretorios necessarios
+RUN mkdir -p /var/log/supervisor
+
 # Permissoes
 RUN chown -R www-data:www-data storage bootstrap/cache
 
