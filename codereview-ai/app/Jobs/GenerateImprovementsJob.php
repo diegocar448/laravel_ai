@@ -16,6 +16,7 @@ class GenerateImprovementsJob implements ShouldQueue
 
     public int $tries = 3;
     public int $timeout = 300;       // 5 minutos (multi-agent e mais lento)
+    public int $backoff = 90;        // Aguardar 90s antes de cada retry (rate limit Gemini)
 
     public function __construct(
         public Project $project,
