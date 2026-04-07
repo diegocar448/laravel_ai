@@ -240,12 +240,12 @@ Seu papel e analisar o codigo submetido e:
 3. **Priorizar** os 3 findings mais criticos para resolver primeiro,
    considerando impacto em producao e facilidade de correcao
 
-4. **Gerar** uma analise detalhada em markdown com:
+4. **Gerar** um summary em markdown com no maximo 800 palavras contendo:
    - Score geral do codigo (0-100)
-   - Analise por pilar com exemplos especificos do codigo
-   - Sugestoes concretas de refatoracao com code snippets
-   - Quick wins (melhorias rapidas de alto impacto)
+   - Analise por pilar (2-3 paragrafos curtos cada)
+   - Top 3 melhorias prioritarias (sem code snippets longos)
 
+IMPORTANTE: O summary deve ser conciso e objetivo. Nao inclua blocos de codigo longos no summary — apenas referencias curtas inline.
 Responda APENAS no formato JSON especificado.
 Linguagem: {{ $codeReview->project->language }}
 Projeto: {{ $codeReview->project->name }}
@@ -470,6 +470,18 @@ class CodeReviewForm extends Form
     public string $security_strength = '';
     public string $security_improvement = '';
 
+    public function rules(): array
+    {
+        return [
+            'architecture_strength'    => 'required|string|max:1000',
+            'architecture_improvement' => 'required|string|max:1000',
+            'performance_strength'     => 'required|string|max:1000',
+            'performance_improvement'  => 'required|string|max:1000',
+            'security_strength'        => 'required|string|max:1000',
+            'security_improvement'     => 'required|string|max:1000',
+        ];
+    }
+
     public function store(Project $project): CodeReview
     {
         $this->validate();
@@ -510,6 +522,8 @@ class CodeReviewForm extends Form
 }
 ```
 
+> **Atencao:** O metodo `rules()` e obrigatorio em Livewire Form Objects. Sem ele, `$this->validate()` lanca `MissingRulesException`.
+
 **Fluxo do formulario:**
 
 ```
@@ -534,7 +548,237 @@ git commit -m "feat: add CodeReviewForm to trigger AI analysis"
 
 ---
 
-## Passo 8 — Verificar o Agent no Tinker
+## Passo 8 — Criar a view da pagina do projeto
+
+A pagina `pages/projects/show` exibe o codigo, o formulario de analise, o loading enquanto o queue processa e o resultado final.
+
+### 8.1 — Adicionar highlight.js no layout
+
+Edite `resources/views/layouts/app.blade.php` e adicione o CSS antes de `</head>` e o JS antes de `</body>`:
+
+```html
+<!-- antes de </head> -->
+@livewireStyles
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+</head>
+```
+
+```html
+<!-- antes de </body> -->
+@livewireScripts
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', () => hljs.highlightAll());
+    document.addEventListener('livewire:navigated', () => hljs.highlightAll());
+</script>
+</body>
+```
+
+### 8.2 — Criar a view show.blade.php
+
+Crie `resources/views/pages/projects/show.blade.php`:
+
+```php
+<?php
+
+use Livewire\Volt\Component;
+use App\Models\Project;
+use App\Livewire\Forms\CodeReviewForm;
+
+new class extends Component
+{
+    public Project $project;
+    public CodeReviewForm $form;
+
+    public function mount(Project $project): void
+    {
+        $this->authorize('view', $project);
+        $this->project = $project;
+    }
+
+    public function requestReview(): void
+    {
+        $this->form->store($this->project);
+        $this->redirect(route('project', $this->project));
+    }
+
+    public function with(): array
+    {
+        return [
+            'project' => $this->project->load('codeReview.findings', 'improvements', 'status'),
+        ];
+    }
+}
+?>
+
+<div class="space-y-6">
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-xl font-bold">{{ $project->name }}</h1>
+            <div class="flex items-center gap-2 mt-1">
+                <span class="text-xs px-2 py-0.5 rounded bg-indigo-600/30 text-indigo-300">{{ strtoupper($project->language) }}</span>
+                <span class="text-xs text-gray-400">{{ $project->status->name }}</span>
+            </div>
+        </div>
+    </div>
+
+    {{-- Codigo com syntax highlight --}}
+    <x-card>
+        <x-card.header>
+            <span class="text-sm font-medium">Codigo</span>
+        </x-card.header>
+        <x-card.body class="p-0">
+            <pre class="rounded-b-lg overflow-x-auto text-sm m-0"><code class="{{ $project->language }}">{{ $project->code_snippet }}</code></pre>
+        </x-card.body>
+    </x-card>
+
+    {{-- Status: Pending — loading com wire:poll --}}
+    @if($project->codeReview && $project->codeReview->review_status_id === 1)
+        <div wire:poll.3s class="mt-6 rounded-xl border border-indigo-500/30 bg-indigo-950/40 overflow-hidden">
+            <div class="h-1 w-full bg-indigo-900/50 overflow-hidden">
+                <div class="h-1 bg-indigo-500"
+                     style="animation: progress 2s ease-in-out infinite; width: 40%"></div>
+            </div>
+            <div class="p-6">
+                <div class="flex items-start gap-4">
+                    <div class="flex-shrink-0 w-10 h-10 rounded-full bg-indigo-600/20 flex items-center justify-center">
+                        <svg class="animate-spin h-5 w-5 text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+                        </svg>
+                    </div>
+                    <div class="flex-1">
+                        <p class="text-sm font-semibold text-indigo-300">Analisando com IA...</p>
+                        <p class="text-xs text-gray-400 mt-1">Os agentes estao revisando o codigo. Isso leva entre 10 e 30 segundos.</p>
+                        <div class="mt-4 space-y-2">
+                            @foreach([
+                                'CodeAnalyst — Analisando estrutura geral',
+                                'SecurityAnalyst — Verificando vulnerabilidades OWASP',
+                                'ArchitectureAnalyst — Avaliando padroes de design',
+                                'PerformanceAnalyst — Identificando gargalos',
+                            ] as $i => $etapa)
+                                <div class="flex items-center gap-2 text-xs text-gray-400">
+                                    <div class="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></div>
+                                    {{ $etapa }}
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <style>
+            @keyframes progress {
+                0%   { width: 5%;  margin-left: 0; }
+                50%  { width: 40%; margin-left: 30%; }
+                100% { width: 5%;  margin-left: 100%; }
+            }
+        </style>
+    @endif
+
+    {{-- Status: Failed --}}
+    @if($project->codeReview && $project->codeReview->review_status_id === 3)
+        <div class="mt-6 p-4 rounded-lg bg-red-900/30 border border-red-500/30 text-red-300 text-sm">
+            Falha na analise. Tente novamente mais tarde.
+        </div>
+    @endif
+
+    {{-- Status: Completed — resultado --}}
+    @if($project->codeReview && $project->codeReview->review_status_id === 2)
+        <div class="mt-6 space-y-6">
+            <h2 class="text-lg font-semibold">Resultado da Analise</h2>
+
+            @if($project->codeReview->summary)
+                <x-card>
+                    <x-card.header>
+                        <span class="text-sm font-medium">Analise Completa</span>
+                    </x-card.header>
+                    <x-card.body>
+                        <div class="text-sm leading-7 text-gray-300 space-y-3
+                            [&_h2]:text-base [&_h2]:font-semibold [&_h2]:text-indigo-300 [&_h2]:mt-4 [&_h2]:border-b [&_h2]:border-gray-700 [&_h2]:pb-1
+                            [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:text-gray-200 [&_h3]:mt-3
+                            [&_strong]:text-white [&_strong]:font-semibold
+                            [&_code]:bg-gray-800 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-indigo-300 [&_code]:text-xs
+                            [&_pre]:bg-gray-800 [&_pre]:rounded-lg [&_pre]:p-4 [&_pre]:overflow-x-auto [&_pre]:my-3
+                            [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1
+                            [&_li]:text-gray-300
+                        ">{!! \Illuminate\Support\Str::markdown($project->codeReview->summary) !!}</div>
+                    </x-card.body>
+                </x-card>
+            @endif
+
+            @if($project->codeReview->findings->count())
+                <h3 class="text-base font-semibold mt-4">Findings</h3>
+                @foreach($project->codeReview->findings as $finding)
+                    <x-card>
+                        <x-card.header>
+                            <div class="flex items-center justify-between">
+                                <span>{{ $finding->pillar->name }} — {{ $finding->type->name }}</span>
+                                <span class="text-xs px-2 py-1 rounded
+                                    {{ $finding->severity === 'critical' ? 'bg-red-600' : '' }}
+                                    {{ $finding->severity === 'high' ? 'bg-orange-500' : '' }}
+                                    {{ $finding->severity === 'medium' ? 'bg-yellow-500 text-black' : '' }}
+                                    {{ $finding->severity === 'low' ? 'bg-gray-500' : '' }}
+                                ">{{ $finding->severity }}</span>
+                            </div>
+                        </x-card.header>
+                        <x-card.body>{{ $finding->description }}</x-card.body>
+                    </x-card>
+                @endforeach
+            @endif
+        </div>
+
+    @else
+        {{-- Formulario para solicitar analise --}}
+        <form wire:submit="requestReview" class="space-y-6 mt-6">
+            <h2 class="text-lg font-semibold">Solicitar Analise de IA</h2>
+            <p class="text-sm text-gray-500">Preencha suas observacoes sobre o codigo antes de enviar para analise.</p>
+
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <x-form.input wire:model="form.architecture_strength"
+                    label="Arquitetura — Ponto forte"
+                    placeholder="Ex: Bom uso de interfaces, separacao de responsabilidades" />
+                <x-form.input wire:model="form.architecture_improvement"
+                    label="Arquitetura — Ponto de melhoria"
+                    placeholder="Ex: Alta coesao entre classes, falta de injecao de dependencia" />
+                <x-form.input wire:model="form.performance_strength"
+                    label="Performance — Ponto forte"
+                    placeholder="Ex: Queries otimizadas, uso de cache" />
+                <x-form.input wire:model="form.performance_improvement"
+                    label="Performance — Ponto de melhoria"
+                    placeholder="Ex: N+1 detectado, falta de paginacao" />
+                <x-form.input wire:model="form.security_strength"
+                    label="Seguranca — Ponto forte"
+                    placeholder="Ex: CSRF protegido, validacao de inputs" />
+                <x-form.input wire:model="form.security_improvement"
+                    label="Seguranca — Ponto de melhoria"
+                    placeholder="Ex: SQL injection risk, dados sensiveis expostos" />
+            </div>
+
+            <x-button type="submit">
+                <span wire:loading.remove>Solicitar Analise IA</span>
+                <span wire:loading>Analisando...</span>
+            </x-button>
+        </form>
+    @endif
+</div>
+```
+
+**Pontos importantes da view:**
+- `wire:poll.3s` — enquanto status = Pending, o Livewire consulta o banco a cada 3s e atualiza automaticamente quando o job terminar (sem o usuario recarregar)
+- `highlight.js` — syntax highlight do codigo igual a um editor
+- `Str::markdown()` — renderiza o summary gerado pelo Gemini como HTML formatado
+- Badges coloridos por severidade: `critical`=vermelho, `high`=laranja, `medium`=amarelo, `low`=cinza
+
+```bash
+cd ~/laravel_ai
+git add .
+git commit -m "feat: add project show view with AI loading state and result"
+```
+
+---
+
+## Passo 10 — Verificar o Agent no Tinker
 
 Vamos testar se o Agent funciona corretamente. Primeiro, certifique-se de que o banco esta atualizado:
 
@@ -601,7 +845,7 @@ exit
 
 ---
 
-## Passo 9 — Providers suportados (referencia)
+## Passo 11 — Providers suportados (referencia)
 
 | Provider | Modelos | Custo | Ideal para |
 |----------|---------|-------|-----------|
@@ -615,7 +859,7 @@ Para trocar de provider, basta alterar `AI_PROVIDER` e a API key no `.env`.
 
 ---
 
-## Passo 10 — Commitar e criar PR
+## Passo 12 — Commitar e criar PR
 
 ```bash
 cd ~/laravel_ai
@@ -641,9 +885,11 @@ git pull
 |---------|-----------|
 | `config/ai.php` | Configuracao do Laravel AI SDK (providers e API keys) |
 | `app/Ai/Agents/CodeAnalyst.php` | Agent com `HasStructuredOutput` + `Promptable` |
-| `resources/views/prompts/code-review-system-prompt.blade.php` | System prompt Blade com dados interpolados do projeto |
+| `resources/views/prompts/code-review-system-prompt.blade.php` | System prompt Blade — max 800 palavras, sem code snippets longos |
 | `app/Services/CodeAnalysisService.php` | Orquestra Agent -> Eloquent (com failover) |
-| `app/Livewire/Forms/CodeReviewForm.php` | Formulario que cria findings e dispara job de IA |
+| `app/Livewire/Forms/CodeReviewForm.php` | Form Object com `rules()` + dispara job de IA |
+| `resources/views/pages/projects/show.blade.php` | Exibe codigo com highlight, loading `wire:poll.3s` e resultado markdown |
+| `resources/views/layouts/app.blade.php` | Inclui highlight.js CDN para syntax highlight |
 
 ## Proximo capitulo
 

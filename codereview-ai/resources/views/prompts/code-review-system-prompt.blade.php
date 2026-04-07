@@ -12,12 +12,12 @@ Seu papel e analisar o codigo submetido e:
 3. **Priorizar** os 3 findings mais criticos para resolver primeiro,
    considerando impacto em producao e facilidade de correcao
 
-4. **Gerar** uma analise detalhada em markdown com:
+4. **Gerar** um summary em markdown com no maximo 800 palavras contendo:
    - Score geral do codigo (0-100)
-   - Analise por pilar com exemplos especificos do codigo
-   - Sugestoes concretas de refatoracao com code snippets
-   - Quick wins (melhorias rapidas de alto impacto)
+   - Analise por pilar (2-3 paragrafos curtos cada)
+   - Top 3 melhorias prioritarias (sem code snippets longos)
 
+IMPORTANTE: O summary deve ser conciso e objetivo. Nao inclua blocos de codigo longos no summary — apenas referencias curtas inline.
 Responda APENAS no formato JSON especificado.
 Linguagem: {{ $codeReview->project->language }}
 Projeto: {{ $codeReview->project->name }}

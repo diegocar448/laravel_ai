@@ -16,6 +16,18 @@ class CodeReviewForm extends Form
     public string $security_strength = '';
     public string $security_improvement = '';
 
+    public function rules(): array
+    {
+        return [
+            'architecture_strength'   => 'required|string|max:1000',
+            'architecture_improvement' => 'required|string|max:1000',
+            'performance_strength'    => 'required|string|max:1000',
+            'performance_improvement' => 'required|string|max:1000',
+            'security_strength'       => 'required|string|max:1000',
+            'security_improvement'    => 'required|string|max:1000',
+        ];
+    }
+
     public function store(Project $project): CodeReview
     {
         $this->validate();

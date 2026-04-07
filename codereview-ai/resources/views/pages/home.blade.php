@@ -27,17 +27,30 @@ new class extends Component
 <div>
         <h1>Meus Projetos</h1>
 
-        @foreach($projects as $project)
-            <x-card>
-                <x-card.header>
-                    {{ $project->name }}
-                    <span class="text-sm text-gray-500">{{ $project->language }}</span>
-                </x-card.header>
-                <x-card.body>
-                    <code>{{ Str::limit($project->code_snippet, 200) }}</code>
-                </x-card.body>
-            </x-card>
-        @endforeach
+        @forelse($projects as $project)
+            <a href="{{ route('project', $project) }}" class="block">
+                <x-card class="hover:border-indigo-500 transition-colors cursor-pointer">
+                    <x-card.header>
+                        <div class="flex items-center justify-between">
+                            <span>{{ $project->name }}</span>
+                            <div class="flex gap-2 text-sm text-gray-500">
+                                <span>{{ strtoupper($project->language) }}</span>
+                                <span>·</span>
+                                <span>{{ $project->status->name ?? 'Active' }}</span>
+                            </div>
+                        </div>
+                    </x-card.header>
+                    <x-card.body>
+                        <code class="text-xs">{{ Str::limit($project->code_snippet, 120) }}</code>
+                    </x-card.body>
+                </x-card>
+            </a>
+        @empty
+            <p class="text-gray-500 text-sm">Nenhum projeto ainda. Crie o primeiro abaixo.</p>
+        @endforelse
+
+        <hr class="my-8 border-gray-700">
+        <h2 class="text-lg font-semibold mb-4">Novo Projeto</h2>
 
         <form wire:submit="save">
             <x-form.input wire:model="form.name" label="Nome do projeto" />
