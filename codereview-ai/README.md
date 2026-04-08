@@ -1,58 +1,108 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# CodeReview AI
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+SaaS de revisão de código com IA construído com Laravel 13 + Laravel AI SDK.
+Analisa código submetido por múltiplos agentes especializados e retorna findings de arquitetura, performance e segurança com score e plano de melhorias.
 
-## About Laravel
+---
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Arquitetura de IA
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+![8 Pilares da Engenharia de IA](../docs/assets/arquitetura-ia.png)
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+---
 
-## Learning Laravel
+## Stack
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+| Camada | Tecnologia |
+|---|---|
+| Backend | Laravel 13, PHP 8.5 |
+| Frontend | Livewire 4 + Volt, Tailwind CSS |
+| IA | Laravel AI SDK 0.4.x, Gemini 2.5 Flash |
+| Embeddings | Gemini gemini-embedding-001 (768 dims) |
+| Banco | PostgreSQL + pgvector |
+| Queue | Laravel Queue (database driver) |
+| Container (dev) | Laravel Sail |
+| Container (prod) | Docker multi-stage + Supervisor |
+| Testes | Pest PHP |
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+---
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+## Agentes
 
-## Agentic Development
+| Agente | Responsabilidade |
+|---|---|
+| `CodeAnalyst` | Analisa estrutura geral, gera summary e score |
+| `SecurityAnalyst` | Pilar segurança — OWASP Top 10 |
+| `ArchitectureAnalyst` | Pilar arquitetura — SOLID, PSR-12, Clean Code |
+| `PerformanceAnalyst` | Pilar performance — N+1, cache, algoritmos |
+| `CodeMentor` | Orquestra os analistas e gera plano de melhorias |
 
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+Busca semântica via `SearchDocsKnowledgeBase` (RAG com pgvector).
+
+Jobs assíncronos:
+- `AnalyzeCodeJob` — dispara `CodeAnalyst`
+- `GenerateImprovementsJob` — dispara multi-agentes + `CodeMentor`
+
+---
+
+## Pré-requisitos
+
+- Docker + Docker Compose
+- PHP 8.5 (via Sail)
+- Chave de API do Google Gemini
+
+---
+
+## Instalação
 
 ```bash
-composer require laravel/boost --dev
+# 1. Clonar e instalar dependências
+git clone <repo>
+cd codereview-ai
+composer install
 
-php artisan boost:install
+# 2. Configurar ambiente
+cp .env.example .env
+# Preencher: DB_*, GEMINI_API_KEY
+
+# 3. Subir containers
+./vendor/bin/sail up -d
+
+# 4. Migrations e seeds
+sail artisan migrate
+sail artisan db:seed --class=LookupSeeder
+
+# 5. Importar knowledge base (PSR-12)
+sail artisan docs:import psr-12
+
+# 6. Rodar worker de filas
+sail artisan queue:work --tries=3 -v
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+---
 
-## Contributing
+## Testes
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+```bash
+sail artisan test
+```
 
-## Code of Conduct
+57 testes, cobertura de agents, jobs, RAG e endpoints REST.
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+---
 
-## Security Vulnerabilities
+## Documentação da API
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+Disponível em `/docs/api` (Scramble) no ambiente `local`.
 
-## License
+---
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+## Tutorial
+
+O repositório acompanha 14 capítulos em `docs/` que documentam a construção do projeto passo a passo, incluindo erros reais encontrados e suas correções.
+
+---
+
+## Licença
+
+MIT
