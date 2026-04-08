@@ -5,6 +5,8 @@
 **Nivel:** Intermediario | **Publico:** Developers PHP/Laravel com interesse em IA
 **Custo:** Gratis (Google Gemini free tier) | **Tempo:** ~40-50h
 
+![8 Pilares da Engenharia de IA](docs/assets/arquitetura-ia.png)
+
 ---
 
 ## O que e AI Engineering?
