@@ -568,11 +568,25 @@ Edite `resources/views/layouts/app.blade.php` e adicione o CSS antes de `</head>
 @livewireScripts
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script>
-    document.addEventListener('DOMContentLoaded', () => hljs.highlightAll());
-    document.addEventListener('livewire:navigated', () => hljs.highlightAll());
+    function hljsHighlight() {
+        document.querySelectorAll('pre code:not([data-highlighted])').forEach(el => hljs.highlightElement(el));
+    }
+
+    document.addEventListener('DOMContentLoaded', hljsHighlight);
+    document.addEventListener('livewire:navigated', hljsHighlight);
+
+    document.addEventListener('livewire:init', () => {
+        Livewire.hook('commit', ({ succeed }) => {
+            succeed(() => setTimeout(hljsHighlight, 0));
+        });
+    });
 </script>
 </body>
 ```
+
+> **Por que `Livewire.hook('commit')`?**
+> O evento `livewire:updated` não existe no Livewire 3/4. O hook `commit` dispara após cada re-render do componente — inclusive os disparados pelo `wire:poll`. Sem ele, o highlight.js não re-aplica quando o resultado da IA aparece automaticamente na tela.
+> A função `hljsHighlight` usa `pre code:not([data-highlighted])` para processar apenas elementos novos no DOM, evitando re-processar blocos já destacados.
 
 ### 8.2 — Criar a view show.blade.php
 
