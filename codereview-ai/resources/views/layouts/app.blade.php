@@ -50,8 +50,18 @@
     @livewireScripts
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script>
-        document.addEventListener('DOMContentLoaded', () => hljs.highlightAll());
-        document.addEventListener('livewire:navigated', () => hljs.highlightAll());
+        function hljsHighlight() {
+            document.querySelectorAll('pre code:not([data-highlighted])').forEach(el => hljs.highlightElement(el));
+        }
+
+        document.addEventListener('DOMContentLoaded', hljsHighlight);
+        document.addEventListener('livewire:navigated', hljsHighlight);
+
+        document.addEventListener('livewire:init', () => {
+            Livewire.hook('commit', ({ succeed }) => {
+                succeed(() => setTimeout(hljsHighlight, 0));
+            });
+        });
     </script>
 </body>
 </html>
